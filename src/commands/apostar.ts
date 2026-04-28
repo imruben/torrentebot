@@ -1,5 +1,6 @@
 import { Message, Collection, TextChannel } from "discord.js";
 import { getBalance, transferPesetas } from "../db";
+import { updateFaryRole } from "../roles/fary";
 
 // ─── Pending bets store ───────────────────────────────────────────────────────
 // Key: `${guildId}:${challengedUserId}`
@@ -138,5 +139,9 @@ export async function handleAcepto(message: Message): Promise<void> {
     `🎲 **¡Resultado de la apuesta!**\n\n` +
       `🏆 <@${winnerId}> gana **${bet.amount.toLocaleString("es-ES")} pesetas** → ahora tiene **${winnerNewBalance.toLocaleString("es-ES")}**\n` +
       `💸 <@${loserId}> pierde **${bet.amount.toLocaleString("es-ES")} pesetas** → ahora tiene **${loserNewBalance.toLocaleString("es-ES")}**`
+  );
+
+  await updateFaryRole(bet.guildId).catch((err) =>
+    console.error("[FaryRole] Error updating after bet:", err)
   );
 }

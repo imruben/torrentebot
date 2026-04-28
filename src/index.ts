@@ -1,5 +1,6 @@
-import { Client, Events, GatewayIntentBits, Message } from "discord.js";
+import { Events, Message } from "discord.js";
 import "dotenv/config";
+import client from "./client";
 import { initDb } from "./db";
 import { handleSaluda } from "./commands/saluda";
 import { handlePesetas } from "./commands/pesetas";
@@ -10,16 +11,6 @@ import { handleVoiceStateUpdate, startVoiceTicker } from "./events/voiceTracker"
 
 // ─── Command prefix ───────────────────────────────────────────────────────────
 const PREFIX = "!torrente";
-
-// ─── Client setup ─────────────────────────────────────────────────────────────
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates,
-  ],
-});
 
 client.once(Events.ClientReady, (bot) => {
   console.log(`[TorrenteBot] Logged in as ${bot.user.tag}`);

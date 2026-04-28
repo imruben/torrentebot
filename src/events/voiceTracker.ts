@@ -1,5 +1,6 @@
 import { Client, VoiceState } from "discord.js";
 import { addPesetas } from "../db";
+import { updateFaryRole } from "../roles/fary";
 
 const PESETAS_PER_TICK = 100;
 const TICK_INTERVAL_MS = 60_000;
@@ -32,6 +33,8 @@ export function startVoiceTicker(client: Client): void {
   });
 
   setInterval(async () => {
+    const updatedGuilds = new Set<string>();
+
     for (const [key, channelId] of voiceSessions) {
       const [guildId, userId] = key.split(":");
       const guild = client.guilds.cache.get(guildId);
@@ -46,6 +49,14 @@ export function startVoiceTicker(client: Client): void {
       const newBalance = await addPesetas(guildId, userId, PESETAS_PER_TICK);
       console.log(
         `[Pesetas] +${PESETAS_PER_TICK} pesetas → ${userId} | balance: ${newBalance}`
+      );
+      updatedGuilds.add(guildId);
+    }
+
+    // Update the fary role once per guild where pesetas changed
+    for (const guildId of updatedGuilds) {
+      await updateFaryRole(guildId).catch((err) =>
+        console.error("[FaryRole] Error updating after tick:", err)
       );
     }
   }, TICK_INTERVAL_MS);

@@ -109,3 +109,17 @@ export async function getLeaderboard(
   );
   return result.rows;
 }
+
+// Returns the single user with the highest balance in a guild, or null if no rows
+export async function getTopUser(
+  guildId: string
+): Promise<{ user_id: string; balance: number } | null> {
+  const result = await pool.query<{ user_id: string; balance: number }>(
+    `SELECT user_id, balance FROM pesetas
+     WHERE guild_id = $1
+     ORDER BY balance DESC
+     LIMIT 1`,
+    [guildId]
+  );
+  return result.rows[0] ?? null;
+}
