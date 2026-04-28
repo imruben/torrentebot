@@ -5,7 +5,7 @@ import { handleSaluda } from "./commands/saluda";
 import { handlePesetas } from "./commands/pesetas";
 import { handleRanking } from "./commands/ranking";
 import { handleApostar, handleAcepto } from "./commands/apostar";
-import { handleVoiceStateUpdate } from "./events/voiceTracker";
+import { handleVoiceStateUpdate, startVoiceTicker } from "./events/voiceTracker";
 
 // ─── Bot responses ────────────────────────────────────────────────────────────
 const RESPONSES: string[] = [
@@ -39,8 +39,10 @@ client.once(Events.ClientReady, (bot) => {
 });
 
 // ─── Voice state tracking (pesetas) ──────────────────────────────────────────
-client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
-  await handleVoiceStateUpdate(oldState, newState);
+startVoiceTicker(client);
+
+client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+  handleVoiceStateUpdate(oldState, newState);
 });
 
 // ─── Message handler ─────────────────────────────────────────────────────────
