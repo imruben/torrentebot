@@ -50,9 +50,18 @@ async function playCoronacionSong(member: GuildMember): Promise<void> {
     return;
   }
 
-  const voiceChannel = member.voice.channel;
-  if (!voiceChannel) {
-    console.log(`[FaryRole] ${member.user.tag} is not in a voice channel, skipping song`);
+  // Use the member's voice channel if they're in one, otherwise pick the first
+  // populated voice channel in the guild, and as a last resort any voice channel
+  const guild = member.guild;
+  const voiceChannel =
+    member.voice.channel ??
+    guild.channels.cache
+      .filter((c) => c.isVoiceBased() && c.members.filter((m) => !m.user.bot).size > 0)
+      .first() ??
+    guild.channels.cache.filter((c) => c.isVoiceBased()).first();
+
+  if (!voiceChannel?.isVoiceBased()) {
+    console.warn("[FaryRole] No voice channel available in guild, skipping song");
     return;
   }
 
