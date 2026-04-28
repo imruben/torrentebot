@@ -4,7 +4,12 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuInteraction,
   ComponentType,
+  TextChannel,
 } from "discord.js";
+import { handleSaluda } from "./saluda";
+import { handlePesetas } from "./pesetas";
+import { handleRanking } from "./ranking";
+import { handleAcepto } from "./apostar";
 
 const COMMANDS = [
   {
@@ -42,7 +47,7 @@ const COMMANDS = [
 export async function handleHelp(message: Message): Promise<void> {
   const menu = new StringSelectMenuBuilder()
     .setCustomId("help_menu")
-    .setPlaceholder("Elige un comando para ver cómo usarlo…")
+    .setPlaceholder("¿Qué quieres hacer?")
     .addOptions(
       COMMANDS.map((cmd) => ({
         value: cmd.value,
@@ -55,86 +60,56 @@ export async function handleHelp(message: Message): Promise<void> {
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 
   const reply = await message.reply({
-    content: "**Comandos disponibles de TorrenteBot** — elige uno para ver más detalles:",
+    content: "Elige un comando:",
     components: [row],
   });
 
-  // Listen for the interaction for 60 seconds, only from the user who triggered it
   const collector = reply.createMessageComponentCollector({
     componentType: ComponentType.StringSelect,
     time: 60_000,
     filter: (i) => i.user.id === message.author.id,
+    max: 1,
   });
 
   collector.on("collect", async (interaction: StringSelectMenuInteraction) => {
-    const selected = COMMANDS.find((cmd) => cmd.value === interaction.values[0]);
-    if (!selected) return;
+    // Acknowledge the interaction silently so Discord doesn't show "interaction failed"
+    await interaction.deferUpdate();
 
-    const details: Record<string, string> = {
-      saluda: [
-        "**🎙️ !torrente saluda**",
-        "El bot se une a tu canal de voz, reproduce el saludo y se va.",
-        "",
-        "**Uso:** `!torrente saluda`",
-        "**Requisito:** Tienes que estar en un canal de voz.",
-      ].join("\n"),
+    // Delete the menu
+    await reply.delete().catch(() => {});
 
-      pesetas: [
-        "**💰 !torrente pesetas**",
-        "Muestra tu saldo actual de pesetas.",
-        "",
-        "**Uso:** `!torrente pesetas`",
-        "**Cómo ganar:** Estar en un canal de voz con al menos otra persona. Ganas **100 pesetas por minuto**.",
-        "**Saldo inicial:** 1000 pesetas.",
-      ].join("\n"),
+    const selected = interaction.values[0];
 
-      ranking: [
-        "**🏆 !torrente ranking**",
-        "Muestra el top 10 de usuarios con más pesetas en el servidor.",
-        "",
-        "**Uso:** `!torrente ranking`",
-      ].join("\n"),
-
-      apostar: [
-        "**🎲 !torrente apostar**",
-        "Reta a otro usuario a una apuesta. Si acepta, se decide al 50/50.",
-        "",
-        "**Uso:** `!torrente apostar @usuario <cantidad>`",
-        "**Ejemplo:** `!torrente apostar @Pepe 500`",
-        "**Reglas:**",
-        "• Ambos deben tener suficientes pesetas.",
-        "• Sin mínimo ni máximo — puedes apostar todo.",
-        "• El retado tiene **60 segundos** para aceptar con `!torrente acepto`.",
-        "• El ganador se lleva las pesetas del perdedor.",
-      ].join("\n"),
-
-      acepto: [
-        "**✅ !torrente acepto**",
-        "Acepta una apuesta que otro usuario te ha lanzado.",
-        "",
-        "**Uso:** `!torrente acepto`",
-        "**Requisito:** Alguien te tiene que haber retado con `!torrente apostar`.",
-        "**Tiempo límite:** 60 segundos desde el reto.",
-      ].join("\n"),
-    };
-
-    await interaction.reply({
-      content: details[selected.value] ?? "Comando no encontrado.",
-      ephemeral: true,
-    });
+    if (selected === "saluda") {
+      await handleSaluda(message);
+    } else if (selected === "pesetas") {
+      await handlePesetas(message);
+    } else if (selected === "ranking") {
+      await handleRanking(message);
+    } else if (selected === "acepto") {
+      await handleAcepto(message);
+    } else if (selected === "apostar") {
+      if (message.channel instanceof TextChannel) {
+        await message.channel.send(
+          `<@${message.author.id}> Usa: \`!torrente apostar @usuario <cantidad>\``
+        );
+      }
+    }
   });
 
-  collector.on("end", async () => {
-    // Disable the menu after timeout
-    const disabledMenu = new StringSelectMenuBuilder()
-      .setCustomId("help_menu")
-      .setPlaceholder("Menú expirado.")
-      .setDisabled(true)
-      .addOptions(COMMANDS.map((cmd) => ({ value: cmd.value, label: cmd.label })));
+  collector.on("end", (collected) => {
+    // If nobody selected anything, disable the menu
+    if (collected.size === 0) {
+      const disabledMenu = new StringSelectMenuBuilder()
+        .setCustomId("help_menu")
+        .setPlaceholder("Menú expirado.")
+        .setDisabled(true)
+        .addOptions(COMMANDS.map((cmd) => ({ value: cmd.value, label: cmd.label })));
 
-    const disabledRow =
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(disabledMenu);
+      const disabledRow =
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(disabledMenu);
 
-    await reply.edit({ components: [disabledRow] }).catch(() => {});
+      reply.edit({ content: "Elige un comando:", components: [disabledRow] }).catch(() => {});
+    }
   });
 }
