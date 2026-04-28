@@ -16,6 +16,8 @@ const FARY_ROLE_NAME = "El Fary";
 const ANNOUNCEMENT_CHANNEL_ID = "1181307409583591486";
 const CORONACION_AUDIO = path.join(__dirname, "..", "..", "assets", "audio", "fary-coronacion.mp3");
 
+const PREFERRED_VOICE_CHANNEL_ID = "1196198010695209021";
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function getOrCreateFaryRole(guild: Guild): Promise<Role> {
@@ -50,18 +52,23 @@ async function playCoronacionSong(member: GuildMember): Promise<void> {
     return;
   }
 
-  // Use the member's voice channel if they're in one, otherwise pick the first
-  // populated voice channel in the guild, and as a last resort any voice channel
+  // Priority: preferred channel (if populated) → any channel with people → skip
   const guild = member.guild;
+
+  const preferred = guild.channels.cache.get(PREFERRED_VOICE_CHANNEL_ID);
+  const preferredHasPeople =
+    preferred?.isVoiceBased() &&
+    preferred.members.filter((m) => !m.user.bot).size > 0;
+
   const voiceChannel =
-    member.voice.channel ??
-    guild.channels.cache
-      .filter((c) => c.isVoiceBased() && c.members.filter((m) => !m.user.bot).size > 0)
-      .first() ??
-    guild.channels.cache.filter((c) => c.isVoiceBased()).first();
+    preferredHasPeople
+      ? preferred
+      : guild.channels.cache
+          .filter((c) => c.isVoiceBased() && c.members.filter((m) => !m.user.bot).size > 0)
+          .first();
 
   if (!voiceChannel?.isVoiceBased()) {
-    console.warn("[FaryRole] No voice channel available in guild, skipping song");
+    console.warn("[FaryRole] No occupied voice channel found, skipping song");
     return;
   }
 
