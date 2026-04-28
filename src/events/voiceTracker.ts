@@ -4,10 +4,16 @@ import { updateFaryRole } from "../roles/fary";
 
 const PESETAS_PER_TICK = 100;
 const TICK_INTERVAL_MS = 60_000;
+const HOURLY_BONUS = 100_000;
+const TICKS_PER_HOUR = 60;
 
 // ─── Active voice sessions ────────────────────────────────────────────────────
 // Key: `${guildId}:${userId}` — Value: channelId they are currently in
 const voiceSessions = new Map<string, string>();
+
+// Counts consecutive qualifying ticks (2+ humans) per session key.
+// Resets when the user leaves voice or the channel drops below 2 people.
+const qualifyingTicks = new Map<string, number>();
 
 function sessionKey(guildId: string, userId: string): string {
   return `${guildId}:${userId}`;
@@ -44,13 +50,28 @@ export function startVoiceTicker(client: Client): void {
       if (!channel?.isVoiceBased()) continue;
 
       const humanCount = channel.members.filter((m) => !m.user.bot).size;
-      if (humanCount < 2) continue;
+      if (humanCount < 2) {
+        // Channel no longer qualifies — reset the streak
+        qualifyingTicks.delete(key);
+        continue;
+      }
 
+      // Award regular tick pesetas
       const newBalance = await addPesetas(guildId, userId, PESETAS_PER_TICK);
-      console.log(
-        `[Pesetas] +${PESETAS_PER_TICK} pesetas → ${userId} | balance: ${newBalance}`
-      );
+      console.log(`[Pesetas] +${PESETAS_PER_TICK} pesetas → ${userId} | balance: ${newBalance}`);
       updatedGuilds.add(guildId);
+
+      // Increment streak and check for hourly bonus
+      const ticks = (qualifyingTicks.get(key) ?? 0) + 1;
+      qualifyingTicks.set(key, ticks);
+
+      if (ticks % TICKS_PER_HOUR === 0) {
+        const bonusBalance = await addPesetas(guildId, userId, HOURLY_BONUS);
+        console.log(
+          `[Pesetas] +${HOURLY_BONUS} hourly bonus → ${userId} | balance: ${bonusBalance}`
+        );
+        updatedGuilds.add(guildId);
+      }
     }
 
     // Update the fary role once per guild where pesetas changed
@@ -75,10 +96,12 @@ export function handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceStat
   const joinedChannel = newState.channel;
 
   if (joinedChannel && (!leftChannel || leftChannel.id !== joinedChannel.id)) {
-    // User joined or switched to a new channel — start/update their session
+    // User joined or switched to a new channel — start/update session, reset streak
     voiceSessions.set(key, joinedChannel.id);
+    qualifyingTicks.delete(key);
   } else if (!joinedChannel && leftChannel) {
-    // User left voice entirely — remove session
+    // User left voice entirely — remove session and streak
     voiceSessions.delete(key);
+    qualifyingTicks.delete(key);
   }
 }
