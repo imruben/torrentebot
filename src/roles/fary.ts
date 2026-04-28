@@ -2,14 +2,14 @@ import { Guild, Role } from "discord.js";
 import client from "../client";
 import { getTopUser } from "../db";
 
-const FARY_ROLE_NAME = "el fary";
+const FARY_ROLE_NAME = "El Fary";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // Finds the "el fary" role, creating it if it doesn't exist
 async function getOrCreateFaryRole(guild: Guild): Promise<Role> {
   const existing = guild.roles.cache.find(
-    (r) => r.name.toLowerCase() === FARY_ROLE_NAME
+    (r) => r.name === FARY_ROLE_NAME
   );
   if (existing) return existing;
 
