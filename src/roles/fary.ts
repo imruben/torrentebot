@@ -6,16 +6,16 @@ const FARY_ROLE_NAME = "El Fary";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Finds the "el fary" role, creating it if it doesn't exist
+// Finds the "El Fary" role, creating it if it doesn't exist.
+// Always fetches roles from Discord to avoid stale cache.
 async function getOrCreateFaryRole(guild: Guild): Promise<Role> {
-  const existing = guild.roles.cache.find(
-    (r) => r.name === FARY_ROLE_NAME
-  );
+  const roles = await guild.roles.fetch();
+  const existing = roles.find((r) => r.name === FARY_ROLE_NAME);
   if (existing) return existing;
 
   const created = await guild.roles.create({
     name: FARY_ROLE_NAME,
-    color: 0xffd700, // gold
+    color: 0xffd700,
     reason: "TorrenteBot: role for the richest member",
   });
 
@@ -24,37 +24,43 @@ async function getOrCreateFaryRole(guild: Guild): Promise<Role> {
 }
 
 // ─── Main update function ─────────────────────────────────────────────────────
-
-// Checks who has the most pesetas in a guild and assigns the "el fary" role to them.
-// Removes it from anyone else who currently holds it.
-// Call this after any pesetas balance change.
 export async function updateFaryRole(guildId: string): Promise<void> {
   const guild = client.guilds.cache.get(guildId);
-  if (!guild) return;
+  if (!guild) {
+    console.warn(`[FaryRole] Guild ${guildId} not found in cache`);
+    return;
+  }
 
   const top = await getTopUser(guildId);
+  console.log(`[FaryRole] Top user: ${top?.user_id ?? "none"} (${top?.balance ?? 0} pesetas)`);
+
   const role = await getOrCreateFaryRole(guild);
 
-  // Fetch all members who currently have the role
-  await guild.members.fetch();
-  const currentHolders = guild.members.cache.filter((m) => m.roles.cache.has(role.id));
+  // Fetch all members fresh so role caches are up to date
+  const members = await guild.members.fetch();
 
-  // Remove the role from everyone who has it but shouldn't
-  for (const [memberId, member] of currentHolders) {
-    if (!top || memberId !== top.user_id) {
+  // Remove the role from anyone who has it but isn't the top user
+  for (const [memberId, member] of members) {
+    if (member.roles.cache.has(role.id) && (!top || memberId !== top.user_id)) {
       await member.roles.remove(role, "TorrenteBot: lost top pesetas spot");
       console.log(`[FaryRole] Removed from ${member.user.tag}`);
     }
   }
 
-  // Assign the role to the new top user if they don't have it already
+  // Assign the role to the top user if they don't already have it
   if (top) {
-    const topMember = guild.members.cache.get(top.user_id);
-    if (topMember && !topMember.roles.cache.has(role.id)) {
+    const topMember = members.get(top.user_id);
+    if (!topMember) {
+      console.warn(`[FaryRole] Top user ${top.user_id} not found in guild members`);
+      return;
+    }
+    if (!topMember.roles.cache.has(role.id)) {
       await topMember.roles.add(role, "TorrenteBot: richest member");
       console.log(
         `[FaryRole] Assigned to ${topMember.user.tag} (${top.balance.toLocaleString("es-ES")} pesetas)`
       );
+    } else {
+      console.log(`[FaryRole] ${topMember.user.tag} already has the role, no change needed`);
     }
   }
 }
