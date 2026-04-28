@@ -5,21 +5,8 @@ import { handleSaluda } from "./commands/saluda";
 import { handlePesetas } from "./commands/pesetas";
 import { handleRanking } from "./commands/ranking";
 import { handleApostar, handleAcepto } from "./commands/apostar";
+import { handleHelp } from "./commands/help";
 import { handleVoiceStateUpdate, startVoiceTicker } from "./events/voiceTracker";
-
-// ─── Bot responses ────────────────────────────────────────────────────────────
-const RESPONSES: string[] = [
-  "¡Viva el Fary!",
-  "Soy el número uno.",
-  "El Fary nunca muere.",
-  "¡Arriba el rock and roll español!",
-  "Como dijo el Fary: 'la vida es bella'.",
-  "El Fary te manda saludos desde el más allá.",
-];
-
-function randomResponse(): string {
-  return RESPONSES[Math.floor(Math.random() * RESPONSES.length)];
-}
 
 // ─── Command prefix ───────────────────────────────────────────────────────────
 const PREFIX = "!torrente";
@@ -70,8 +57,8 @@ client.on(Events.MessageCreate, async (message: Message) => {
   } else if (subcommand.startsWith("acepto")) {
     await handleAcepto(message);
   } else {
-    // Fallback: mention or plain !torrente → random Fary quote
-    await message.reply(randomResponse());
+    // No subcommand or plain mention → show help menu
+    await handleHelp(message);
   }
 });
 
