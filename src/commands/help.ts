@@ -4,12 +4,11 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuInteraction,
   ComponentType,
-  TextChannel,
 } from "discord.js";
 import { handleSaluda } from "./saluda";
 import { handlePesetas } from "./pesetas";
 import { handleRanking } from "./ranking";
-import { handleAcepto } from "./apostar";
+import { handleAcepto, handleApostar } from "./apostar";
 
 const COMMANDS = [
   {
@@ -89,11 +88,7 @@ export async function handleHelp(message: Message): Promise<void> {
     } else if (selected === "acepto") {
       await handleAcepto(message);
     } else if (selected === "apostar") {
-      if (message.channel instanceof TextChannel) {
-        await message.channel.send(
-          `<@${message.author.id}> Usa: \`!torrente apostar @usuario <cantidad>\``
-        );
-      }
+      await handleApostar(message);
     }
   });
 
