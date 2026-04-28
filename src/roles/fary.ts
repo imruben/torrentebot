@@ -10,14 +10,11 @@ import {
 import path from "path";
 import fs from "fs";
 import client from "../client";
-import { getTopUser } from "../db";
+import { getTopUser, getFaryHolder, setFaryHolder, clearFaryHolder } from "../db";
 
 const FARY_ROLE_NAME = "El Fary";
 const ANNOUNCEMENT_CHANNEL_ID = "1181307409583591486";
 const CORONACION_AUDIO = path.join(__dirname, "..", "..", "assets", "audio", "fary-coronacion.mp3");
-
-// ─── In-memory: track who currently holds El Fary to detect real changes ─────
-let currentFaryId: string | null = null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -39,10 +36,9 @@ async function getOrCreateFaryRole(guild: Guild): Promise<Role> {
 async function sendAnnouncement(guild: Guild, newFary: GuildMember, balance: number): Promise<void> {
   const channel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
   if (!channel?.isTextBased()) {
-    console.warn(`[FaryRole] Announcement channel ${ANNOUNCEMENT_CHANNEL_ID} not found or not a text channel`);
+    console.warn(`[FaryRole] Announcement channel ${ANNOUNCEMENT_CHANNEL_ID} not found or not text`);
     return;
   }
-
   await channel.send(
     `👑 ¡**${newFary.displayName}** es ahora **El Fary** del servidor con **${balance.toLocaleString("es-ES")} pesetas**! 🎸`
   );
@@ -92,6 +88,8 @@ async function playCoronacionSong(member: GuildMember): Promise<void> {
 }
 
 // ─── Main update function ─────────────────────────────────────────────────────
+// Always reads the real current holder from the DB — survives bot restarts.
+// Removes the role from the old holder by their ID (no bulk member fetch needed).
 export async function updateFaryRole(guildId: string): Promise<void> {
   const guild = client.guilds.cache.get(guildId);
   if (!guild) {
@@ -99,42 +97,52 @@ export async function updateFaryRole(guildId: string): Promise<void> {
     return;
   }
 
-  const top = await getTopUser(guildId);
+  const [top, currentHolderId] = await Promise.all([
+    getTopUser(guildId),
+    getFaryHolder(guildId),
+  ]);
+
   const newTopId = top?.user_id ?? null;
 
-  // Skip everything if the top user hasn't changed since last check
-  if (newTopId === currentFaryId) return;
+  // Nothing to do if the top user hasn't changed
+  if (newTopId === currentHolderId) return;
 
-  console.log(`[FaryRole] El Fary changed: ${currentFaryId ?? "none"} → ${newTopId ?? "none"}`);
+  console.log(`[FaryRole] Updating: ${currentHolderId ?? "none"} → ${newTopId ?? "none"}`);
 
   const role = await getOrCreateFaryRole(guild);
 
-  // Remove the role from anyone who holds it but is no longer the top user
-  for (const [memberId, member] of role.members) {
-    if (!top || memberId !== top.user_id) {
-      await member.roles.remove(role, "TorrenteBot: lost top pesetas spot");
-      console.log(`[FaryRole] Removed from ${member.user.tag}`);
+  // Remove the role from the previous holder by fetching only that member
+  if (currentHolderId) {
+    const oldMember = await guild.members.fetch(currentHolderId).catch(() => null);
+    if (oldMember) {
+      await oldMember.roles.remove(role, "TorrenteBot: lost top pesetas spot").catch(() => {});
+      console.log(`[FaryRole] Removed from ${oldMember.user.tag}`);
+    } else {
+      console.warn(`[FaryRole] Old holder ${currentHolderId} not found in guild, skipping removal`);
     }
   }
 
-  currentFaryId = newTopId;
+  // Update DB to reflect new state
+  if (newTopId) {
+    await setFaryHolder(guildId, newTopId);
+  } else {
+    await clearFaryHolder(guildId);
+  }
 
   // Assign the role to the new top user
-  if (top) {
-    const topMember = await guild.members.fetch(top.user_id).catch(() => null);
-    if (!topMember) {
-      console.warn(`[FaryRole] Top user ${top.user_id} not found in guild`);
-      return;
-    }
+  if (!top || !newTopId) return;
 
-    if (!topMember.roles.cache.has(role.id)) {
-      await topMember.roles.add(role, "TorrenteBot: richest member");
-      console.log(`[FaryRole] Assigned to ${topMember.user.tag} (${top.balance.toLocaleString("es-ES")} pesetas)`);
-    }
-
-    await sendAnnouncement(guild, topMember, top.balance);
-    playCoronacionSong(topMember).catch((err) =>
-      console.error("[FaryRole] Error playing song:", err.message)
-    );
+  const topMember = await guild.members.fetch(newTopId).catch(() => null);
+  if (!topMember) {
+    console.warn(`[FaryRole] New top user ${newTopId} not found in guild`);
+    return;
   }
+
+  await topMember.roles.add(role, "TorrenteBot: richest member");
+  console.log(`[FaryRole] Assigned to ${topMember.user.tag} (${top.balance.toLocaleString("es-ES")} pesetas)`);
+
+  await sendAnnouncement(guild, topMember, top.balance);
+  playCoronacionSong(topMember).catch((err) =>
+    console.error("[FaryRole] Error playing song:", err.message)
+  );
 }

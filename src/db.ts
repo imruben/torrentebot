@@ -14,6 +14,14 @@ export async function initDb(): Promise<void> {
       PRIMARY KEY (guild_id, user_id)
     )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fary_holder (
+      guild_id  TEXT PRIMARY KEY,
+      user_id   TEXT NOT NULL
+    )
+  `);
+
   console.log("[DB] Schema ready.");
 }
 
@@ -122,4 +130,27 @@ export async function getTopUser(
     [guildId]
   );
   return result.rows[0] ?? null;
+}
+
+// Returns the user_id currently stored as El Fary for a guild, or null
+export async function getFaryHolder(guildId: string): Promise<string | null> {
+  const result = await pool.query<{ user_id: string }>(
+    `SELECT user_id FROM fary_holder WHERE guild_id = $1`,
+    [guildId]
+  );
+  return result.rows[0]?.user_id ?? null;
+}
+
+// Upserts the El Fary holder for a guild
+export async function setFaryHolder(guildId: string, userId: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO fary_holder (guild_id, user_id) VALUES ($1, $2)
+     ON CONFLICT (guild_id) DO UPDATE SET user_id = $2`,
+    [guildId, userId]
+  );
+}
+
+// Clears the El Fary holder for a guild (nobody holds the role)
+export async function clearFaryHolder(guildId: string): Promise<void> {
+  await pool.query(`DELETE FROM fary_holder WHERE guild_id = $1`, [guildId]);
 }
