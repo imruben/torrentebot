@@ -37,15 +37,13 @@ async function resolveBet(
   const winnerId = challengerWins ? bet.challengerId : bet.challengedId;
   const loserId = challengerWins ? bet.challengedId : bet.challengerId;
 
-  const { fromBalance, toBalance } = await transferPesetas(
+  // transferPesetas(loserId, winnerId) → fromBalance = loser's new balance, toBalance = winner's new balance
+  const { fromBalance: loserNewBalance, toBalance: winnerNewBalance } = await transferPesetas(
     bet.guildId,
     loserId,
     winnerId,
     bet.amount
   );
-
-  const winnerNewBalance = winnerId === bet.challengerId ? toBalance : fromBalance;
-  const loserNewBalance = loserId === bet.challengerId ? fromBalance : toBalance;
 
   await replyTarget.reply(
     `🎲 **¡Resultado de la apuesta!**\n\n` +
