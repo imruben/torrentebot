@@ -5,7 +5,10 @@ import {
   ActionRowBuilder,
   UserSelectMenuBuilder,
   StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ComponentType,
+  ButtonInteraction,
 } from "discord.js";
 import { getBalance, transferPesetas } from "../db";
 import { updateFaryRole } from "../roles/fary";
@@ -25,7 +28,37 @@ const BET_TIMEOUT_MS = 60_000;
 
 const PRESET_AMOUNTS = [100, 500, 1000, 5000];
 
-// ─── Internal: validate and post the bet challenge ────────────────────────────
+// ─── Internal: resolve a bet (coin flip + transfer + announce result) ─────────
+async function resolveBet(
+  bet: PendingBet,
+  replyTarget: { reply: (content: string) => Promise<unknown> }
+): Promise<void> {
+  const challengerWins = Math.random() < 0.5;
+  const winnerId = challengerWins ? bet.challengerId : bet.challengedId;
+  const loserId = challengerWins ? bet.challengedId : bet.challengerId;
+
+  const { fromBalance, toBalance } = await transferPesetas(
+    bet.guildId,
+    loserId,
+    winnerId,
+    bet.amount
+  );
+
+  const winnerNewBalance = winnerId === bet.challengerId ? toBalance : fromBalance;
+  const loserNewBalance = loserId === bet.challengerId ? fromBalance : toBalance;
+
+  await replyTarget.reply(
+    `🎲 **¡Resultado de la apuesta!**\n\n` +
+      `🏆 <@${winnerId}> gana **${bet.amount.toLocaleString("es-ES")} pesetas** → ahora tiene **${winnerNewBalance.toLocaleString("es-ES")}**\n` +
+      `💸 <@${loserId}> pierde **${bet.amount.toLocaleString("es-ES")} pesetas** → ahora tiene **${loserNewBalance.toLocaleString("es-ES")}**`
+  );
+
+  await updateFaryRole(bet.guildId).catch((err) =>
+    console.error("[FaryRole] Error updating after bet:", err)
+  );
+}
+
+// ─── Internal: validate and post the bet challenge with an Accept button ──────
 async function postBetChallenge(
   message: Message,
   challengedId: string,
@@ -60,33 +93,85 @@ async function postBetChallenge(
     return;
   }
 
-  pendingBets.set(betKey, {
+  const bet: PendingBet = {
     challengerId: message.author.id,
     challengedId,
     guildId: message.guild.id,
     amount,
     expiresAt: Date.now() + BET_TIMEOUT_MS,
+  };
+
+  pendingBets.set(betKey, bet);
+
+  // ── Build the challenge message with an Accept button ──────────────────────
+  const acceptButton = new ButtonBuilder()
+    .setCustomId(`bet_accept:${betKey}`)
+    .setLabel("✅ Aceptar apuesta")
+    .setStyle(ButtonStyle.Success);
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(acceptButton);
+
+  const challengeMsg = await message.reply({
+    content:
+      `🎲 <@${challengedId}>, **<@${message.author.id}> te reta a apostar ${amount.toLocaleString("es-ES")} pesetas**.\n` +
+      `Tienes **60 segundos** para aceptar.`,
+    components: [row],
   });
 
-  // Auto-expire after 60s
-  setTimeout(() => {
-    const bet = pendingBets.get(betKey);
-    if (bet) {
-      pendingBets.delete(betKey);
-      if (message.channel instanceof TextChannel) {
-        message.channel
-          .send(
-            `⏰ La apuesta de **${bet.amount.toLocaleString("es-ES")} pesetas** entre <@${bet.challengerId}> y <@${bet.challengedId}> ha expirado.`
-          )
-          .catch(() => {});
-      }
-    }
-  }, BET_TIMEOUT_MS);
+  // ── Button collector — only the challenged user can click ──────────────────
+  const collector = challengeMsg.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    time: BET_TIMEOUT_MS,
+    filter: (i) => i.user.id === challengedId,
+    max: 1,
+  });
 
-  await message.reply(
-    `🎲 <@${challengedId}>, <@${message.author.id}> te reta a apostar **${amount.toLocaleString("es-ES")} pesetas**.\n` +
-      `Escribe \`!torrente acepto\` en los próximos 60 segundos para aceptar.`
-  );
+  collector.on("collect", async (interaction: ButtonInteraction) => {
+    const currentBet = pendingBets.get(betKey);
+    if (!currentBet) {
+      await interaction.update({ content: "❌ Esta apuesta ya no está disponible.", components: [] });
+      return;
+    }
+
+    pendingBets.delete(betKey);
+
+    // Disable the button while resolving
+    await interaction.update({
+      content: `🎲 **<@${currentBet.challengerId}> vs <@${currentBet.challengedId}>** — ¡Decidiendo...!`,
+      components: [],
+    });
+
+    await resolveBet(currentBet, {
+      reply: (content) => {
+        if (message.channel instanceof TextChannel) {
+          return message.channel.send(content);
+        }
+        return Promise.resolve();
+      },
+    });
+  });
+
+  collector.on("end", (collected) => {
+    const stillPending = pendingBets.get(betKey);
+    if (stillPending && collected.size === 0) {
+      // Timed out without being accepted
+      pendingBets.delete(betKey);
+      const disabledButton = new ButtonBuilder()
+        .setCustomId(`bet_accept:${betKey}`)
+        .setLabel("⏰ Expirada")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(true);
+
+      const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(disabledButton);
+
+      challengeMsg
+        .edit({
+          content: `⏰ La apuesta de **${amount.toLocaleString("es-ES")} pesetas** entre <@${message.author.id}> y <@${challengedId}> ha expirado.`,
+          components: [disabledRow],
+        })
+        .catch(() => {});
+    }
+  });
 }
 
 // ─── Interactive flow ─────────────────────────────────────────────────────────
@@ -169,7 +254,6 @@ async function handleApostarInteractive(message: Message): Promise<void> {
       const selected = amountInteraction.values[0];
 
       if (selected === "custom") {
-        // Ask the user to type a number in chat
         await amountInteraction.update({
           content: `🎲 **Apostar contra ${targetUser.displayName}** — Escribe la cantidad en el chat:`,
           components: [],
@@ -205,7 +289,6 @@ async function handleApostarInteractive(message: Message): Promise<void> {
         return;
       }
 
-      // Preset or all-in
       const amount = selected === "allin" ? challengerBalance : parseInt(selected, 10);
 
       await amountInteraction.update({ content: "⏳", components: [] });
@@ -228,8 +311,6 @@ async function handleApostarInteractive(message: Message): Promise<void> {
 }
 
 // ─── !torrente apostar ────────────────────────────────────────────────────────
-// Direct path: !torrente apostar @user <amount>
-// Interactive: !torrente apostar (no args)
 export async function handleApostar(message: Message): Promise<void> {
   if (!message.guild) return;
 
@@ -258,7 +339,7 @@ export async function handleApostar(message: Message): Promise<void> {
   await handleApostarInteractive(message);
 }
 
-// ─── !torrente acepto ─────────────────────────────────────────────────────────
+// ─── !torrente acepto — text fallback ────────────────────────────────────────
 export async function handleAcepto(message: Message): Promise<void> {
   if (!message.guild) return;
 
@@ -278,27 +359,5 @@ export async function handleAcepto(message: Message): Promise<void> {
 
   pendingBets.delete(betKey);
 
-  const challengerWins = Math.random() < 0.5;
-  const winnerId = challengerWins ? bet.challengerId : bet.challengedId;
-  const loserId = challengerWins ? bet.challengedId : bet.challengerId;
-
-  const { fromBalance, toBalance } = await transferPesetas(
-    bet.guildId,
-    loserId,
-    winnerId,
-    bet.amount
-  );
-
-  const winnerNewBalance = winnerId === bet.challengerId ? toBalance : fromBalance;
-  const loserNewBalance = loserId === bet.challengerId ? fromBalance : toBalance;
-
-  await message.reply(
-    `🎲 **¡Resultado de la apuesta!**\n\n` +
-      `🏆 <@${winnerId}> gana **${bet.amount.toLocaleString("es-ES")} pesetas** → ahora tiene **${winnerNewBalance.toLocaleString("es-ES")}**\n` +
-      `💸 <@${loserId}> pierde **${bet.amount.toLocaleString("es-ES")} pesetas** → ahora tiene **${loserNewBalance.toLocaleString("es-ES")}**`
-  );
-
-  await updateFaryRole(bet.guildId).catch((err) =>
-    console.error("[FaryRole] Error updating after bet:", err)
-  );
+  await resolveBet(bet, message);
 }
