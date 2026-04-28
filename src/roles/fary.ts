@@ -6,15 +6,18 @@ import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
   entersState,
-  StreamType,
 } from "@discordjs/voice";
-import { spawn } from "child_process";
-import ytdl from "@distube/ytdl-core";
+import path from "path";
+import fs from "fs";
 import client from "../client";
 import { getTopUser } from "../db";
 
 const FARY_ROLE_NAME = "El Fary";
-const FARY_SONG_URL = "https://www.youtube.com/watch?v=DkfPgvX1gOo";
+const ANNOUNCEMENT_CHANNEL_ID = "1181307409583591486";
+const CORONACION_AUDIO = path.join(__dirname, "..", "..", "assets", "audio", "fary-coronacion.mp3");
+
+// ─── In-memory: track who currently holds El Fary to detect real changes ─────
+let currentFaryId: string | null = null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,11 +36,10 @@ async function getOrCreateFaryRole(guild: Guild): Promise<Role> {
   return created;
 }
 
-// Sends the El Fary announcement to the guild system channel
 async function sendAnnouncement(guild: Guild, newFary: GuildMember, balance: number): Promise<void> {
-  const channel = guild.systemChannel;
-  if (!channel) {
-    console.warn("[FaryRole] No system channel set, skipping announcement");
+  const channel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
+  if (!channel?.isTextBased()) {
+    console.warn(`[FaryRole] Announcement channel ${ANNOUNCEMENT_CHANNEL_ID} not found or not a text channel`);
     return;
   }
 
@@ -46,8 +48,12 @@ async function sendAnnouncement(guild: Guild, newFary: GuildMember, balance: num
   );
 }
 
-// Joins the member's voice channel and plays the El Fary song, then leaves
-async function playFarySong(member: GuildMember): Promise<void> {
+async function playCoronacionSong(member: GuildMember): Promise<void> {
+  if (!fs.existsSync(CORONACION_AUDIO)) {
+    console.warn("[FaryRole] fary-coronacion.mp3 not found in assets/audio/, skipping");
+    return;
+  }
+
   const voiceChannel = member.voice.channel;
   if (!voiceChannel) {
     console.log(`[FaryRole] ${member.user.tag} is not in a voice channel, skipping song`);
@@ -64,33 +70,11 @@ async function playFarySong(member: GuildMember): Promise<void> {
     await entersState(connection, VoiceConnectionStatus.Ready, 5_000);
   } catch {
     connection.destroy();
-    console.warn("[FaryRole] Failed to join voice channel for El Fary song");
+    console.warn("[FaryRole] Failed to join voice channel for coronación song");
     return;
   }
 
-  const ytStream = ytdl(FARY_SONG_URL, {
-    filter: "audioonly",
-    quality: "highestaudio",
-    highWaterMark: 1 << 25,
-  });
-
-  // Pipe through ffmpeg to trim: start at 32s, play for 11 seconds (until 0:43)
-  const ffmpeg = spawn("ffmpeg", [
-    "-i", "pipe:0",
-    "-ss", "32",
-    "-t", "11",
-    "-c:a", "libopus",
-    "-f", "ogg",
-    "pipe:1",
-  ], { stdio: ["pipe", "pipe", "ignore"] });
-
-  ytStream.pipe(ffmpeg.stdin!);
-  ytStream.on("error", (err) => {
-    console.error("[FaryRole] ytdl stream error:", err.message);
-    ffmpeg.kill();
-  });
-
-  const resource = createAudioResource(ffmpeg.stdout!, { inputType: StreamType.OggOpus });
+  const resource = createAudioResource(CORONACION_AUDIO);
   const player = createAudioPlayer();
 
   connection.subscribe(player);
@@ -98,11 +82,11 @@ async function playFarySong(member: GuildMember): Promise<void> {
 
   player.on(AudioPlayerStatus.Idle, () => {
     connection.destroy();
-    console.log("[FaryRole] El Fary song finished, left voice channel");
+    console.log("[FaryRole] Coronación song finished, left voice channel");
   });
 
   player.on("error", (err) => {
-    console.error("[FaryRole] Audio error during El Fary song:", err.message);
+    console.error("[FaryRole] Audio error during coronación song:", err.message);
     connection.destroy();
   });
 }
@@ -116,7 +100,12 @@ export async function updateFaryRole(guildId: string): Promise<void> {
   }
 
   const top = await getTopUser(guildId);
-  console.log(`[FaryRole] Top user: ${top?.user_id ?? "none"} (${top?.balance ?? 0} pesetas)`);
+  const newTopId = top?.user_id ?? null;
+
+  // Skip everything if the top user hasn't changed since last check
+  if (newTopId === currentFaryId) return;
+
+  console.log(`[FaryRole] El Fary changed: ${currentFaryId ?? "none"} → ${newTopId ?? "none"}`);
 
   const role = await getOrCreateFaryRole(guild);
 
@@ -128,7 +117,9 @@ export async function updateFaryRole(guildId: string): Promise<void> {
     }
   }
 
-  // Assign the role to the top user if they don't already have it
+  currentFaryId = newTopId;
+
+  // Assign the role to the new top user
   if (top) {
     const topMember = await guild.members.fetch(top.user_id).catch(() => null);
     if (!topMember) {
@@ -138,17 +129,12 @@ export async function updateFaryRole(guildId: string): Promise<void> {
 
     if (!topMember.roles.cache.has(role.id)) {
       await topMember.roles.add(role, "TorrenteBot: richest member");
-      console.log(
-        `[FaryRole] Assigned to ${topMember.user.tag} (${top.balance.toLocaleString("es-ES")} pesetas)`
-      );
-
-      // Announce the new El Fary and play the song
-      await sendAnnouncement(guild, topMember, top.balance);
-      playFarySong(topMember).catch((err) =>
-        console.error("[FaryRole] Error playing song:", err.message)
-      );
-    } else {
-      console.log(`[FaryRole] ${topMember.user.tag} already has the role, no change needed`);
+      console.log(`[FaryRole] Assigned to ${topMember.user.tag} (${top.balance.toLocaleString("es-ES")} pesetas)`);
     }
+
+    await sendAnnouncement(guild, topMember, top.balance);
+    playCoronacionSong(topMember).catch((err) =>
+      console.error("[FaryRole] Error playing song:", err.message)
+    );
   }
 }
