@@ -18,7 +18,7 @@ function sessionKey(guildId: string, userId: string): string {
 export function startVoiceTicker(client: Client): void {
   // On startup, populate sessions from current voice states so users already
   // in voice before the bot started are tracked immediately
-  client.once("ready", () => {
+  client.once("clientReady", () => {
     for (const guild of client.guilds.cache.values()) {
       for (const channel of guild.channels.cache.values()) {
         if (!channel.isVoiceBased()) continue;

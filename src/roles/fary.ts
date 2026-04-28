@@ -6,8 +6,6 @@ const FARY_ROLE_NAME = "El Fary";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Finds the "El Fary" role, creating it if it doesn't exist.
-// Always fetches roles from Discord to avoid stale cache.
 async function getOrCreateFaryRole(guild: Guild): Promise<Role> {
   const roles = await guild.roles.fetch();
   const existing = roles.find((r) => r.name === FARY_ROLE_NAME);
@@ -36,22 +34,20 @@ export async function updateFaryRole(guildId: string): Promise<void> {
 
   const role = await getOrCreateFaryRole(guild);
 
-  // Fetch all members fresh so role caches are up to date
-  const members = await guild.members.fetch();
-
-  // Remove the role from anyone who has it but isn't the top user
-  for (const [memberId, member] of members) {
-    if (member.roles.cache.has(role.id) && (!top || memberId !== top.user_id)) {
+  // Remove the role from anyone who currently holds it but is not the top user.
+  // role.members uses the cached member list for this role — no bulk fetch needed.
+  for (const [memberId, member] of role.members) {
+    if (!top || memberId !== top.user_id) {
       await member.roles.remove(role, "TorrenteBot: lost top pesetas spot");
       console.log(`[FaryRole] Removed from ${member.user.tag}`);
     }
   }
 
-  // Assign the role to the top user if they don't already have it
+  // Assign the role to the top user. Fetch only that single member by ID.
   if (top) {
-    const topMember = members.get(top.user_id);
+    const topMember = await guild.members.fetch(top.user_id).catch(() => null);
     if (!topMember) {
-      console.warn(`[FaryRole] Top user ${top.user_id} not found in guild members`);
+      console.warn(`[FaryRole] Top user ${top.user_id} not found in guild`);
       return;
     }
     if (!topMember.roles.cache.has(role.id)) {
