@@ -1,4 +1,4 @@
-import { Guild, GuildMember, Role, TextChannel } from "discord.js";
+import { Guild, GuildMember, Role } from "discord.js";
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -8,6 +8,7 @@ import {
   entersState,
   StreamType,
 } from "@discordjs/voice";
+import { spawn } from "child_process";
 import ytdl from "@distube/ytdl-core";
 import client from "../client";
 import { getTopUser } from "../db";
@@ -67,13 +68,29 @@ async function playFarySong(member: GuildMember): Promise<void> {
     return;
   }
 
-  const stream = ytdl(FARY_SONG_URL, {
+  const ytStream = ytdl(FARY_SONG_URL, {
     filter: "audioonly",
     quality: "highestaudio",
     highWaterMark: 1 << 25,
   });
 
-  const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+  // Pipe through ffmpeg to trim: start at 32s, play for 11 seconds (until 0:43)
+  const ffmpeg = spawn("ffmpeg", [
+    "-i", "pipe:0",
+    "-ss", "32",
+    "-t", "11",
+    "-c:a", "libopus",
+    "-f", "ogg",
+    "pipe:1",
+  ], { stdio: ["pipe", "pipe", "ignore"] });
+
+  ytStream.pipe(ffmpeg.stdin!);
+  ytStream.on("error", (err) => {
+    console.error("[FaryRole] ytdl stream error:", err.message);
+    ffmpeg.kill();
+  });
+
+  const resource = createAudioResource(ffmpeg.stdout!, { inputType: StreamType.OggOpus });
   const player = createAudioPlayer();
 
   connection.subscribe(player);
