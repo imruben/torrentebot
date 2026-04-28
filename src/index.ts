@@ -1,15 +1,11 @@
 import { Client, Events, GatewayIntentBits, Message } from "discord.js";
-import {
-  joinVoiceChannel,
-  createAudioPlayer,
-  createAudioResource,
-  AudioPlayerStatus,
-  VoiceConnectionStatus,
-  entersState,
-} from "@discordjs/voice";
-import path from "path";
-import fs from "fs";
 import "dotenv/config";
+import { initDb } from "./db";
+import { handleSaluda } from "./commands/saluda";
+import { handlePesetas } from "./commands/pesetas";
+import { handleRanking } from "./commands/ranking";
+import { handleApostar, handleAcepto } from "./commands/apostar";
+import { handleVoiceStateUpdate } from "./events/voiceTracker";
 
 // ─── Bot responses ────────────────────────────────────────────────────────────
 const RESPONSES: string[] = [
@@ -24,10 +20,6 @@ const RESPONSES: string[] = [
 function randomResponse(): string {
   return RESPONSES[Math.floor(Math.random() * RESPONSES.length)];
 }
-
-// ─── Paths ────────────────────────────────────────────────────────────────────
-const AUDIO_DIR = path.join(__dirname, "..", "assets", "audio");
-const GREETING_FILE = path.join(AUDIO_DIR, "greeting.mp3");
 
 // ─── Command prefix ───────────────────────────────────────────────────────────
 const PREFIX = "!torrente";
@@ -46,51 +38,10 @@ client.once(Events.ClientReady, (bot) => {
   console.log(`[TorrenteBot] Logged in as ${bot.user.tag}`);
 });
 
-// ─── Voice greeting handler ──────────────────────────────────────────────────
-async function handleSaluda(message: Message): Promise<void> {
-  const member = message.member;
-  if (!member) return;
-
-  const voiceChannel = member.voice.channel;
-  if (!voiceChannel) {
-    await message.reply("You need to be in a voice channel first.");
-    return;
-  }
-
-  if (!fs.existsSync(GREETING_FILE)) {
-    await message.reply("No greeting audio found. Add `assets/audio/greeting.mp3`.");
-    return;
-  }
-
-  const connection = joinVoiceChannel({
-    channelId: voiceChannel.id,
-    guildId: voiceChannel.guild.id,
-    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-  });
-
-  try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 5_000);
-  } catch {
-    connection.destroy();
-    await message.reply("Failed to join the voice channel.");
-    return;
-  }
-
-  const player = createAudioPlayer();
-  const resource = createAudioResource(GREETING_FILE);
-
-  connection.subscribe(player);
-  player.play(resource);
-
-  player.on(AudioPlayerStatus.Idle, () => {
-    connection.destroy();
-  });
-
-  player.on("error", (err) => {
-    console.error("[TorrenteBot] Audio player error:", err);
-    connection.destroy();
-  });
-}
+// ─── Voice state tracking (pesetas) ──────────────────────────────────────────
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  await handleVoiceStateUpdate(oldState, newState);
+});
 
 // ─── Message handler ─────────────────────────────────────────────────────────
 client.on(Events.MessageCreate, async (message: Message) => {
@@ -99,24 +50,44 @@ client.on(Events.MessageCreate, async (message: Message) => {
   const content = message.content.trim().toLowerCase();
   const isMentioned = message.mentions.has(client.user!);
 
-  // Handle !torrente saluda
-  if (content.startsWith(`${PREFIX} saluda`)) {
+  if (!content.startsWith(PREFIX) && !isMentioned) return;
+
+  // Parse subcommand: everything after "!torrente "
+  const subcommand = content.startsWith(PREFIX)
+    ? content.slice(PREFIX.length).trim()
+    : "";
+
+  if (subcommand.startsWith("saluda")) {
     await handleSaluda(message);
-    return;
+  } else if (subcommand.startsWith("pesetas")) {
+    await handlePesetas(message);
+  } else if (subcommand.startsWith("ranking")) {
+    await handleRanking(message);
+  } else if (subcommand.startsWith("apostar")) {
+    await handleApostar(message);
+  } else if (subcommand.startsWith("acepto")) {
+    await handleAcepto(message);
+  } else {
+    // Fallback: mention or plain !torrente → random Fary quote
+    await message.reply(randomResponse());
   }
-
-  // Handle mention or plain !torrente (text response)
-  const isCommand = content.startsWith(PREFIX);
-  if (!isMentioned && !isCommand) return;
-
-  await message.reply(randomResponse());
 });
 
-// ─── Login ────────────────────────────────────────────────────────────────────
+// ─── Startup ──────────────────────────────────────────────────────────────────
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
   console.error("[TorrenteBot] DISCORD_TOKEN is not set. Check your .env file.");
   process.exit(1);
 }
 
-client.login(token);
+if (!process.env.DATABASE_URL) {
+  console.error("[TorrenteBot] DATABASE_URL is not set. Check your .env file.");
+  process.exit(1);
+}
+
+initDb()
+  .then(() => client.login(token))
+  .catch((err) => {
+    console.error("[TorrenteBot] Failed to initialize database:", err);
+    process.exit(1);
+  });
