@@ -9,7 +9,6 @@ import {
   StreamType,
 } from "@discordjs/voice";
 import { execFile } from "child_process";
-import { existsSync } from "fs";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
@@ -67,10 +66,6 @@ function scheduleIdleLeave(guildId: string, state: GuildMusicState): void {
   }, IDLE_TIMEOUT_MS);
 }
 
-// Path where the YouTube cookies file should be placed (netscape format)
-// Export it from your browser using a "cookies.txt" extension while logged into YouTube
-const COOKIES_PATH = process.env.YTDLP_COOKIES_PATH ?? "/app/cookies.txt";
-
 // Resolve a search query or URL to a { title, url } pair using yt-dlp
 async function resolveWithYtDlp(query: string): Promise<{ title: string; url: string }> {
   // If the query is not already a URL, treat it as a search term
@@ -83,14 +78,9 @@ async function resolveWithYtDlp(query: string): Promise<{ title: string; url: st
     "-f", "bestaudio/best",
     "--no-playlist",
     "--js-runtimes", "node",
-    // tv_embedded client bypasses sign-in requirement on server IPs
-    "--extractor-args", "youtube:player_client=tv_embedded,android",
+    // ios client works without cookies on server IPs
+    "--extractor-args", "youtube:player_client=ios,mweb",
   ];
-
-  // Add cookies if the file exists
-  if (existsSync(COOKIES_PATH)) {
-    args.push("--cookies", COOKIES_PATH);
-  }
 
   args.push(target);
 
