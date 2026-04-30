@@ -29,13 +29,19 @@ client.on(Events.MessageCreate, async (message: Message) => {
   if (message.author.bot) return;
 
   const content = message.content.trim().toLowerCase();
+  const rawContent = message.content.trim(); // preserve original case for args
   const isMentioned = message.mentions.has(client.user!);
 
   if (!content.startsWith(PREFIX) && !isMentioned) return;
 
-  // Parse subcommand: everything after "!torrente "
+  // Parse subcommand (lowercased for matching)
   const subcommand = content.startsWith(PREFIX)
     ? content.slice(PREFIX.length).trim()
+    : "";
+
+  // Raw subcommand preserving original case (for URLs, search queries, etc.)
+  const rawSubcommand = rawContent.toLowerCase().startsWith(PREFIX)
+    ? rawContent.slice(PREFIX.length).trim()
     : "";
 
   if (subcommand.startsWith("saluda")) {
@@ -49,7 +55,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
   } else if (subcommand.startsWith("acepto")) {
     await handleAcepto(message);
   } else if (subcommand.startsWith("pon")) {
-    const args = subcommand.slice("pon".length).trim();
+    const args = rawSubcommand.slice("pon".length).trim();
     await handlePon(message, args);
   } else if (subcommand.startsWith("cola")) {
     await handleCola(message);

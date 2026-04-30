@@ -77,6 +77,7 @@ async function resolveWithYtDlp(query: string): Promise<{ title: string; url: st
     "--print", "url",
     "-f", "bestaudio[ext=webm]/bestaudio/best",
     "--no-playlist",
+    "--js-runtimes", "node",
     target,
   ]);
 
