@@ -7,6 +7,7 @@ import { handlePesetas } from "./commands/pesetas";
 import { handleRanking } from "./commands/ranking";
 import { handleApostar, handleAcepto } from "./commands/apostar";
 import { handleHelp } from "./commands/help";
+import { handlePon, handleCola, handleSkip, handleStop, handlePausa, handleSigue } from "./commands/music";
 import { handleVoiceStateUpdate, startVoiceTicker } from "./events/voiceTracker";
 
 // ─── Command prefix ───────────────────────────────────────────────────────────
@@ -47,6 +48,19 @@ client.on(Events.MessageCreate, async (message: Message) => {
     await handleApostar(message);
   } else if (subcommand.startsWith("acepto")) {
     await handleAcepto(message);
+  } else if (subcommand.startsWith("pon")) {
+    const args = subcommand.slice("pon".length).trim();
+    await handlePon(message, args);
+  } else if (subcommand.startsWith("cola")) {
+    await handleCola(message);
+  } else if (subcommand.startsWith("skip")) {
+    await handleSkip(message);
+  } else if (subcommand.startsWith("stop")) {
+    await handleStop(message);
+  } else if (subcommand.startsWith("pausa")) {
+    await handlePausa(message);
+  } else if (subcommand.startsWith("sigue")) {
+    await handleSigue(message);
   } else {
     // No subcommand or plain mention → show help menu
     await handleHelp(message);

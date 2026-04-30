@@ -9,6 +9,7 @@ import { handleSaluda } from "./saluda";
 import { handlePesetas } from "./pesetas";
 import { handleRanking } from "./ranking";
 import { handleAcepto, handleApostar } from "./apostar";
+import { handlePon, handleCola, handleSkip, handleStop, handlePausa, handleSigue } from "./music";
 
 const COMMANDS = [
   {
@@ -40,6 +41,42 @@ const COMMANDS = [
     label: "!torrente acepto",
     description: "Acepta una apuesta pendiente",
     emoji: "✅",
+  },
+  {
+    value: "pon",
+    label: "!torrente pon <canción o URL>",
+    description: "Pon una canción o añádela a la cola",
+    emoji: "🎵",
+  },
+  {
+    value: "cola",
+    label: "!torrente cola",
+    description: "Muestra la cola de música",
+    emoji: "📋",
+  },
+  {
+    value: "skip",
+    label: "!torrente skip",
+    description: "Salta la canción actual",
+    emoji: "⏭️",
+  },
+  {
+    value: "stop",
+    label: "!torrente stop",
+    description: "Para la música y el bot sale del canal",
+    emoji: "⏹️",
+  },
+  {
+    value: "pausa",
+    label: "!torrente pausa",
+    description: "Pausa la reproducción",
+    emoji: "⏸️",
+  },
+  {
+    value: "sigue",
+    label: "!torrente sigue",
+    description: "Reanuda la reproducción",
+    emoji: "▶️",
   },
 ];
 
@@ -89,6 +126,18 @@ export async function handleHelp(message: Message): Promise<void> {
       await handleAcepto(message);
     } else if (selected === "apostar") {
       await handleApostar(message);
+    } else if (selected === "pon") {
+      await handlePon(message, "");
+    } else if (selected === "cola") {
+      await handleCola(message);
+    } else if (selected === "skip") {
+      await handleSkip(message);
+    } else if (selected === "stop") {
+      await handleStop(message);
+    } else if (selected === "pausa") {
+      await handlePausa(message);
+    } else if (selected === "sigue") {
+      await handleSigue(message);
     }
   });
 

@@ -1,7 +1,8 @@
 # ─── Build stage ──────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 py3-pip make g++ && \
+    pip3 install --break-system-packages yt-dlp
 
 WORKDIR /app
 
@@ -19,7 +20,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache ffmpeg python3 make g++
+RUN apk add --no-cache ffmpeg python3 py3-pip make g++ && \
+    pip3 install --break-system-packages yt-dlp
 
 COPY package*.json ./
 RUN npm ci --omit=dev
