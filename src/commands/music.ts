@@ -81,7 +81,8 @@ async function resolveWithYtDlp(query: string): Promise<{ title: string; url: st
     "-f", "bestaudio/best",
     "--no-playlist",
     "--js-runtimes", "node",
-    "--extractor-args", "youtube:player_client=android,web",
+    "--extractor-args", "youtube:player_client=web",
+    "--remote-components", "ejs:github",
   ];
 
   if (existsSync(COOKIES_PATH)) {
