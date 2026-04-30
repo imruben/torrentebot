@@ -8,7 +8,7 @@ import {
   getVoiceConnection,
   StreamType,
 } from "@discordjs/voice";
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { existsSync } from "fs";
 import { promisify } from "util";
 
@@ -116,8 +116,22 @@ function playNext(guildId: string, channel: Message["channel"]): void {
     return;
   }
 
-  const resource = createAudioResource(song.url, {
-    inputType: StreamType.WebmOpus,
+  // Pipe the stream URL through ffmpeg → opus for Discord
+  const ffmpeg = spawn("ffmpeg", [
+    "-reconnect", "1",
+    "-reconnect_streamed", "1",
+    "-reconnect_delay_max", "5",
+    "-i", song.url,
+    "-vn",
+    "-acodec", "libopus",
+    "-f", "opus",
+    "-ar", "48000",
+    "-ac", "2",
+    "pipe:1",
+  ], { stdio: ["ignore", "pipe", "ignore"] });
+
+  const resource = createAudioResource(ffmpeg.stdout, {
+    inputType: StreamType.OggOpus,
   });
 
   state.player.play(resource);
