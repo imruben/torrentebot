@@ -25,14 +25,16 @@ function sendToChannel(channel: Message["channel"], content: string): void {
 
 interface Song {
   title: string;
-  url: string;        // Direct audio stream URL from yt-dlp
-  requestedBy: string; // Username who requested
+  url: string;
+  requestedBy: string;
 }
 
 interface GuildMusicState {
   queue: Song[];
   player: ReturnType<typeof createAudioPlayer>;
   idleTimer: NodeJS.Timeout | null;
+  // Active child processes for current song — killed on skip/stop
+  activeProcesses: ReturnType<typeof spawn>[];
 }
 
 // ─── Per-guild state ──────────────────────────────────────────────────────────
@@ -47,9 +49,18 @@ function getOrCreateState(guildId: string): GuildMusicState {
       queue: [],
       player: createAudioPlayer(),
       idleTimer: null,
+      activeProcesses: [],
     });
   }
   return guildStates.get(guildId)!;
+}
+
+// Kill and clear active yt-dlp/ffmpeg processes for a guild
+function killActiveProcesses(state: GuildMusicState): void {
+  for (const proc of state.activeProcesses) {
+    try { proc.kill("SIGKILL"); } catch { /* already dead */ }
+  }
+  state.activeProcesses = [];
 }
 
 function clearIdleTimer(state: GuildMusicState): void {
@@ -117,6 +128,9 @@ function playNext(guildId: string, channel: Message["channel"]): void {
     return;
   }
 
+  // Kill any processes from the previous song before starting new ones
+  killActiveProcesses(state);
+
   // yt-dlp downloads the audio and pipes it to stdout (-o -)
   // ffmpeg reads from stdin and converts to raw PCM for discord.js
   const ytdlpArgs = [
@@ -136,7 +150,6 @@ function playNext(guildId: string, channel: Message["channel"]): void {
   ytdlpArgs.push(song.url);
 
   const ytdlp = spawn("yt-dlp", ytdlpArgs, { stdio: ["ignore", "pipe", "pipe"] });
-
   const ffmpeg = spawn("ffmpeg", [
     "-i", "pipe:0",
     "-vn",
@@ -146,8 +159,18 @@ function playNext(guildId: string, channel: Message["channel"]): void {
     "pipe:1",
   ], { stdio: ["pipe", "pipe", "pipe"] });
 
+  // Track processes so we can kill them on skip/stop
+  state.activeProcesses = [ytdlp, ffmpeg];
+
   // Pipe yt-dlp stdout → ffmpeg stdin
+  // Handle EPIPE gracefully (happens when ffmpeg is killed mid-stream)
   ytdlp.stdout.pipe(ffmpeg.stdin);
+  ffmpeg.stdin.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EPIPE") console.error(`[Music] ffmpeg stdin error:`, err);
+  });
+  ytdlp.stdout.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EPIPE") console.error(`[Music] yt-dlp stdout error:`, err);
+  });
 
   ytdlp.stderr.on("data", (d) => {
     const msg = d.toString().trim();
@@ -159,8 +182,12 @@ function playNext(guildId: string, channel: Message["channel"]): void {
     if (msg) console.log(`[Music] ffmpeg: ${msg.slice(0, 120)}`);
   });
 
-  ytdlp.on("error", (err) => console.error(`[Music] yt-dlp spawn error:`, err));
-  ffmpeg.on("error", (err) => console.error(`[Music] ffmpeg spawn error:`, err));
+  ytdlp.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EPIPE") console.error(`[Music] yt-dlp spawn error:`, err);
+  });
+  ffmpeg.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EPIPE") console.error(`[Music] ffmpeg spawn error:`, err);
+  });
 
   const resource = createAudioResource(ffmpeg.stdout, {
     inputType: StreamType.Raw,
@@ -292,7 +319,9 @@ export async function handleSkip(message: Message): Promise<void> {
   }
 
   const skipped = state.queue[0].title;
-  state.player.stop(); // triggers the Idle event → playNext
+  // Kill current processes BEFORE stopping the player to avoid EPIPE crash
+  killActiveProcesses(state);
+  state.player.stop();
   await message.reply(`⏭️ Saltando: **${skipped}**`);
 }
 
@@ -308,6 +337,7 @@ export async function handleStop(message: Message): Promise<void> {
   }
 
   if (state) {
+    killActiveProcesses(state);
     clearIdleTimer(state);
     state.queue.length = 0;
     state.player.removeAllListeners();
