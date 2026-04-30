@@ -7,6 +7,7 @@ import {
   VoiceConnectionStatus,
   getVoiceConnection,
   StreamType,
+  entersState,
 } from "@discordjs/voice";
 import { execFile, spawn } from "child_process";
 import { existsSync } from "fs";
@@ -134,7 +135,12 @@ function playNext(guildId: string, channel: Message["channel"]): void {
     inputType: StreamType.OggOpus,
   });
 
+  ffmpeg.on("error", (err) => {
+    console.error(`[Music] ffmpeg process error:`, err);
+  });
+
   state.player.play(resource);
+  console.log(`[Music] Playing: ${song.title} | URL: ${song.url.slice(0, 80)}...`);
 
   state.player.removeAllListeners(AudioPlayerStatus.Idle);
   state.player.once(AudioPlayerStatus.Idle, () => {
@@ -208,6 +214,18 @@ export async function handlePon(message: Message, args: string): Promise<void> {
     });
 
     connection.subscribe(state.player);
+
+    // Wait for the connection to be ready before playing
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+      console.log("[Music] Voice connection is ready");
+    } catch {
+      console.error("[Music] Voice connection failed to become ready in 10s");
+      connection.destroy();
+      guildStates.delete(guildId);
+      sendToChannel(message.channel, "Error: no pude conectarme al canal de voz.");
+      return;
+    }
   }
 
   // If player is idle (nothing playing), start now. Otherwise just enqueue.
