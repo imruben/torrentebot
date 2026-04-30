@@ -151,6 +151,7 @@ function playNext(guildId: string, channel: Message["channel"]): void {
 
   const ytdlp = spawn("yt-dlp", ytdlpArgs, { stdio: ["ignore", "pipe", "pipe"] });
   const ffmpeg = spawn("ffmpeg", [
+    "-loglevel", "error",
     "-i", "pipe:0",
     "-vn",
     "-f", "s16le",
