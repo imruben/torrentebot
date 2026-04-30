@@ -117,22 +117,21 @@ function playNext(guildId: string, channel: Message["channel"]): void {
     return;
   }
 
-  // Pipe the stream URL through ffmpeg → opus for Discord
+  // Pipe the stream URL through ffmpeg → PCM s16le for Discord
   const ffmpeg = spawn("ffmpeg", [
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
     "-i", song.url,
     "-vn",
-    "-acodec", "libopus",
-    "-f", "opus",
+    "-f", "s16le",
     "-ar", "48000",
     "-ac", "2",
     "pipe:1",
-  ], { stdio: ["ignore", "pipe", "ignore"] });
+  ], { stdio: ["ignore", "pipe", "pipe"] });
 
   const resource = createAudioResource(ffmpeg.stdout, {
-    inputType: StreamType.OggOpus,
+    inputType: StreamType.Raw,
   });
 
   ffmpeg.on("error", (err) => {
