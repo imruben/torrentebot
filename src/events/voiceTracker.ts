@@ -15,8 +15,6 @@ const voiceSessions = new Map<string, string>();
 // Resets when the user leaves voice or the channel drops below 2 people.
 const qualifyingTicks = new Map<string, number>();
 
-const ANNOUNCEMENT_CHANNEL_ID = "1181307409583591486";
-
 function sessionKey(guildId: string, userId: string): string {
   return `${guildId}:${userId}`;
 }
@@ -73,18 +71,6 @@ export function startVoiceTicker(client: Client): void {
           `[Pesetas] +${HOURLY_BONUS} hourly bonus → ${userId} | balance: ${bonusBalance}`
         );
         updatedGuilds.add(guildId);
-
-        // Announce the hourly bonus in the general channel
-        try {
-          const announcementChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
-          if (announcementChannel?.isTextBased()) {
-            await announcementChannel.send(
-              `🎉 <@${userId}> ha estado 1 hora seguida en el canal de voz y gana **100.000 pesetas** de bonus!`
-            );
-          }
-        } catch (err) {
-          console.error("[VoiceTracker] Failed to send hourly bonus announcement:", err);
-        }
       }
     }
 
