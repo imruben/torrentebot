@@ -70,20 +70,21 @@ function scheduleIdleLeave(guildId: string, state: GuildMusicState): void {
 
 const COOKIES_PATH = process.env.YTDLP_COOKIES_PATH ?? "/app/data/cookies.txt";
 
-// Resolve a search query or URL to a { title, url } pair using yt-dlp
+// Resolve a search query or URL → { title, originalUrl } using yt-dlp
+// We only fetch title + the canonical YouTube URL (not the stream URL).
+// The actual audio is streamed later by yt-dlp in playNext().
 async function resolveWithYtDlp(query: string): Promise<{ title: string; url: string }> {
-  // If the query is not already a URL, treat it as a search term
   const isUrl = /^https?:\/\//i.test(query);
   const target = isUrl ? query : `ytsearch1:${query}`;
 
   const args = [
     "--print", "title",
-    "--print", "url",
-    "-f", "bestaudio/best",
+    "--print", "webpage_url",  // canonical YouTube URL, not the expiring stream URL
     "--no-playlist",
     "--js-runtimes", "node",
     "--extractor-args", "youtube:player_client=web",
     "--remote-components", "ejs:github",
+    "--skip-download",
   ];
 
   if (existsSync(COOKIES_PATH)) {
@@ -99,9 +100,8 @@ async function resolveWithYtDlp(query: string): Promise<{ title: string; url: st
     throw new Error("yt-dlp returned unexpected output");
   }
 
-  // yt-dlp prints title then url (one per --print)
   const title = lines[0].trim();
-  const url = lines[lines.length - 1].trim(); // last line is the stream URL
+  const url = lines[1].trim();
 
   return { title, url };
 }
@@ -117,29 +117,57 @@ function playNext(guildId: string, channel: Message["channel"]): void {
     return;
   }
 
-  // Pipe the stream URL through ffmpeg → PCM s16le for Discord
+  // yt-dlp downloads the audio and pipes it to stdout (-o -)
+  // ffmpeg reads from stdin and converts to raw PCM for discord.js
+  const ytdlpArgs = [
+    "-o", "-",
+    "-f", "bestaudio/best",
+    "--no-playlist",
+    "--quiet",
+    "--js-runtimes", "node",
+    "--extractor-args", "youtube:player_client=web",
+    "--remote-components", "ejs:github",
+  ];
+
+  if (existsSync(COOKIES_PATH)) {
+    ytdlpArgs.push("--cookies", COOKIES_PATH);
+  }
+
+  ytdlpArgs.push(song.url);
+
+  const ytdlp = spawn("yt-dlp", ytdlpArgs, { stdio: ["ignore", "pipe", "pipe"] });
+
   const ffmpeg = spawn("ffmpeg", [
-    "-reconnect", "1",
-    "-reconnect_streamed", "1",
-    "-reconnect_delay_max", "5",
-    "-i", song.url,
+    "-i", "pipe:0",
     "-vn",
     "-f", "s16le",
     "-ar", "48000",
     "-ac", "2",
     "pipe:1",
-  ], { stdio: ["ignore", "pipe", "pipe"] });
+  ], { stdio: ["pipe", "pipe", "pipe"] });
+
+  // Pipe yt-dlp stdout → ffmpeg stdin
+  ytdlp.stdout.pipe(ffmpeg.stdin);
+
+  ytdlp.stderr.on("data", (d) => {
+    const msg = d.toString().trim();
+    if (msg) console.error(`[Music] yt-dlp: ${msg}`);
+  });
+
+  ffmpeg.stderr.on("data", (d) => {
+    const msg = d.toString().trim();
+    if (msg) console.log(`[Music] ffmpeg: ${msg.slice(0, 120)}`);
+  });
+
+  ytdlp.on("error", (err) => console.error(`[Music] yt-dlp spawn error:`, err));
+  ffmpeg.on("error", (err) => console.error(`[Music] ffmpeg spawn error:`, err));
 
   const resource = createAudioResource(ffmpeg.stdout, {
     inputType: StreamType.Raw,
   });
 
-  ffmpeg.on("error", (err) => {
-    console.error(`[Music] ffmpeg process error:`, err);
-  });
-
   state.player.play(resource);
-  console.log(`[Music] Playing: ${song.title} | URL: ${song.url.slice(0, 80)}...`);
+  console.log(`[Music] Playing: ${song.title}`);
 
   state.player.removeAllListeners(AudioPlayerStatus.Idle);
   state.player.once(AudioPlayerStatus.Idle, () => {
