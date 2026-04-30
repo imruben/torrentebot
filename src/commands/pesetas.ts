@@ -1,11 +1,13 @@
-import { Message } from "discord.js";
+import { ChatInputCommandInteraction, GuildMember } from "discord.js";
 import { getBalance } from "../db";
 
-export async function handlePesetas(message: Message): Promise<void> {
-  if (!message.guild) return;
+export async function handlePesetas(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guild) return;
 
-  const balance = await getBalance(message.guild.id, message.author.id);
-  await message.reply(
-    `💰 **${message.author.displayName}** tiene **${balance.toLocaleString("es-ES")} pesetas**.`
+  const member = interaction.member as GuildMember;
+  const balance = await getBalance(interaction.guild.id, interaction.user.id);
+
+  await interaction.reply(
+    `💰 **${member.displayName}** tiene **${balance.toLocaleString("es-ES")} pesetas**.`
   );
 }

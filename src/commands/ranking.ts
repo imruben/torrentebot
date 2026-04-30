@@ -1,13 +1,15 @@
-import { Message } from "discord.js";
+import { ChatInputCommandInteraction } from "discord.js";
 import { getLeaderboard } from "../db";
 
-export async function handleRanking(message: Message): Promise<void> {
-  if (!message.guild) return;
+export async function handleRanking(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guild) return;
 
-  const rows = await getLeaderboard(message.guild.id);
+  await interaction.deferReply();
+
+  const rows = await getLeaderboard(interaction.guild.id);
 
   if (rows.length === 0) {
-    await message.reply("Aún no hay nadie en el ranking.");
+    await interaction.editReply("Aún no hay nadie en el ranking.");
     return;
   }
 
@@ -18,7 +20,7 @@ export async function handleRanking(message: Message): Promise<void> {
       const medal = medals[i] ?? `**${i + 1}.**`;
       let name: string;
       try {
-        const member = await message.guild!.members.fetch(row.user_id);
+        const member = await interaction.guild!.members.fetch(row.user_id);
         name = member.displayName;
       } catch {
         name = `<@${row.user_id}>`;
@@ -27,5 +29,5 @@ export async function handleRanking(message: Message): Promise<void> {
     })
   );
 
-  await message.reply(`🏆 **Ranking de pesetas**\n\n${lines.join("\n")}`);
+  await interaction.editReply(`🏆 **Ranking de pesetas**\n\n${lines.join("\n")}`);
 }

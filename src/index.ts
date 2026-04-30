@@ -1,17 +1,14 @@
-import { Events, Message } from "discord.js";
+import { Events, ChatInputCommandInteraction } from "discord.js";
 import "dotenv/config";
 import client from "./client";
 import { initDb } from "./db";
 import { handleSaluda } from "./commands/saluda";
 import { handlePesetas } from "./commands/pesetas";
 import { handleRanking } from "./commands/ranking";
-import { handleApostar, handleAcepto } from "./commands/apostar";
-import { handleHelp } from "./commands/help";
+import { handleApostar } from "./commands/apostar";
+import { handleAyuda } from "./commands/help";
 import { handlePon, handleCola, handleSkip, handleStop, handlePausa, handleSigue } from "./commands/music";
 import { handleVoiceStateUpdate, startVoiceTicker } from "./events/voiceTracker";
-
-// ─── Command prefix ───────────────────────────────────────────────────────────
-const PREFIX = "!torrente";
 
 client.once(Events.ClientReady, (bot) => {
   console.log(`[TorrenteBot] Logged in as ${bot.user.tag}`);
@@ -24,52 +21,34 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
   handleVoiceStateUpdate(oldState, newState);
 });
 
-// ─── Message handler ─────────────────────────────────────────────────────────
-client.on(Events.MessageCreate, async (message: Message) => {
-  if (message.author.bot) return;
+// ─── Slash command handler ────────────────────────────────────────────────────
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
 
-  const content = message.content.trim().toLowerCase();
-  const rawContent = message.content.trim(); // preserve original case for args
-  const isMentioned = message.mentions.has(client.user!);
+  const i = interaction as ChatInputCommandInteraction;
 
-  if (!content.startsWith(PREFIX) && !isMentioned) return;
-
-  // Parse subcommand (lowercased for matching)
-  const subcommand = content.startsWith(PREFIX)
-    ? content.slice(PREFIX.length).trim()
-    : "";
-
-  // Raw subcommand preserving original case (for URLs, search queries, etc.)
-  const rawSubcommand = rawContent.toLowerCase().startsWith(PREFIX)
-    ? rawContent.slice(PREFIX.length).trim()
-    : "";
-
-  if (subcommand.startsWith("saluda")) {
-    await handleSaluda(message);
-  } else if (subcommand.startsWith("pesetas")) {
-    await handlePesetas(message);
-  } else if (subcommand.startsWith("ranking")) {
-    await handleRanking(message);
-  } else if (subcommand.startsWith("apostar")) {
-    await handleApostar(message);
-  } else if (subcommand.startsWith("acepto")) {
-    await handleAcepto(message);
-  } else if (subcommand.startsWith("pon")) {
-    const args = rawSubcommand.slice("pon".length).trim();
-    await handlePon(message, args);
-  } else if (subcommand.startsWith("cola")) {
-    await handleCola(message);
-  } else if (subcommand.startsWith("skip")) {
-    await handleSkip(message);
-  } else if (subcommand.startsWith("stop")) {
-    await handleStop(message);
-  } else if (subcommand.startsWith("pausa")) {
-    await handlePausa(message);
-  } else if (subcommand.startsWith("sigue")) {
-    await handleSigue(message);
-  } else {
-    // No subcommand or plain mention → show help menu
-    await handleHelp(message);
+  try {
+    switch (i.commandName) {
+      case "saluda":   await handleSaluda(i);  break;
+      case "pesetas":  await handlePesetas(i); break;
+      case "ranking":  await handleRanking(i); break;
+      case "apostar":  await handleApostar(i); break;
+      case "pon":      await handlePon(i);     break;
+      case "cola":     await handleCola(i);    break;
+      case "skip":     await handleSkip(i);    break;
+      case "stop":     await handleStop(i);    break;
+      case "pausa":    await handlePausa(i);   break;
+      case "sigue":    await handleSigue(i);   break;
+      case "ayuda":    await handleAyuda(i);   break;
+    }
+  } catch (err) {
+    console.error(`[TorrenteBot] Error handling /${i.commandName}:`, err);
+    const msg = { content: "Ocurrió un error ejecutando el comando.", ephemeral: true };
+    if (i.deferred || i.replied) {
+      await i.editReply(msg).catch(() => {});
+    } else {
+      await i.reply(msg).catch(() => {});
+    }
   }
 });
 

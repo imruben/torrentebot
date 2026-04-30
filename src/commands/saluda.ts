@@ -1,4 +1,4 @@
-import { Message } from "discord.js";
+import { ChatInputCommandInteraction, GuildMember, VoiceBasedChannel } from "discord.js";
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -12,20 +12,21 @@ import fs from "fs";
 
 const GREETING_FILE = path.join(__dirname, "..", "..", "assets", "audio", "greeting.mp3");
 
-export async function handleSaluda(message: Message): Promise<void> {
-  const member = message.member;
-  if (!member) return;
+export async function handleSaluda(interaction: ChatInputCommandInteraction): Promise<void> {
+  const member = interaction.member as GuildMember | null;
+  const voiceChannel = member?.voice.channel as VoiceBasedChannel | null;
 
-  const voiceChannel = member.voice.channel;
   if (!voiceChannel) {
-    await message.reply("Tienes que estar en un canal de voz primero.");
+    await interaction.reply({ content: "Tienes que estar en un canal de voz primero.", ephemeral: true });
     return;
   }
 
   if (!fs.existsSync(GREETING_FILE)) {
-    await message.reply("No se encontró el audio. Añade `assets/audio/greeting.mp3`.");
+    await interaction.reply({ content: "No se encontró el audio. Añade `assets/audio/greeting.mp3`.", ephemeral: true });
     return;
   }
+
+  await interaction.deferReply();
 
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
@@ -37,7 +38,7 @@ export async function handleSaluda(message: Message): Promise<void> {
     await entersState(connection, VoiceConnectionStatus.Ready, 5_000);
   } catch {
     connection.destroy();
-    await message.reply("No pude unirme al canal de voz.");
+    await interaction.editReply("No pude unirme al canal de voz.");
     return;
   }
 
@@ -47,10 +48,9 @@ export async function handleSaluda(message: Message): Promise<void> {
   connection.subscribe(player);
   player.play(resource);
 
-  player.on(AudioPlayerStatus.Idle, () => {
-    connection.destroy();
-  });
+  await interaction.editReply("🎙️ ¡Saludando!");
 
+  player.on(AudioPlayerStatus.Idle, () => connection.destroy());
   player.on("error", (err) => {
     console.error("[TorrenteBot] Audio player error:", err);
     connection.destroy();

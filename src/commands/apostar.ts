@@ -1,7 +1,6 @@
 import {
-  Message,
+  ChatInputCommandInteraction,
   Collection,
-  TextChannel,
   ActionRowBuilder,
   UserSelectMenuBuilder,
   StringSelectMenuBuilder,
@@ -9,35 +8,35 @@ import {
   ButtonStyle,
   ComponentType,
   ButtonInteraction,
+  TextChannel,
+  GuildMember,
 } from "discord.js";
 import { getBalance, transferPesetas } from "../db";
 import { updateFaryRole } from "../roles/fary";
 
 // ─── Pending bets store ───────────────────────────────────────────────────────
-// Key: `${guildId}:${challengedUserId}`
 interface PendingBet {
   challengerId: string;
   challengedId: string;
   guildId: string;
   amount: number;
   expiresAt: number;
+  channelId: string;
 }
 
 const pendingBets = new Collection<string, PendingBet>();
 const BET_TIMEOUT_MS = 60_000;
-
 const PRESET_AMOUNTS = [100, 500, 1000, 5000];
 
-// ─── Internal: resolve a bet (coin flip + transfer + announce result) ─────────
+// ─── Internal: resolve a bet ──────────────────────────────────────────────────
 async function resolveBet(
   bet: PendingBet,
-  replyTarget: { reply: (content: string) => Promise<unknown> }
+  sendResult: (content: string) => Promise<unknown>
 ): Promise<void> {
   const challengerWins = Math.random() < 0.5;
   const winnerId = challengerWins ? bet.challengerId : bet.challengedId;
   const loserId = challengerWins ? bet.challengedId : bet.challengerId;
 
-  // transferPesetas(loserId, winnerId) → fromBalance = loser's new balance, toBalance = winner's new balance
   const { fromBalance: loserNewBalance, toBalance: winnerNewBalance } = await transferPesetas(
     bet.guildId,
     loserId,
@@ -45,7 +44,7 @@ async function resolveBet(
     bet.amount
   );
 
-  await replyTarget.reply(
+  await sendResult(
     `🎲 **¡Resultado de la apuesta!**\n\n` +
       `🏆 <@${winnerId}> gana **${bet.amount.toLocaleString("es-ES")} pesetas** → ahora tiene **${winnerNewBalance.toLocaleString("es-ES")}**\n` +
       `💸 <@${loserId}> pierde **${bet.amount.toLocaleString("es-ES")} pesetas** → ahora tiene **${loserNewBalance.toLocaleString("es-ES")}**`
@@ -56,52 +55,52 @@ async function resolveBet(
   );
 }
 
-// ─── Internal: validate and post the bet challenge with an Accept button ──────
+// ─── Internal: post the challenge message with Accept button ──────────────────
 async function postBetChallenge(
-  message: Message,
+  interaction: ChatInputCommandInteraction,
   challengedId: string,
   amount: number
 ): Promise<void> {
-  if (!message.guild) return;
+  const guild = interaction.guild!;
 
   const [challengerBalance, challengedBalance] = await Promise.all([
-    getBalance(message.guild.id, message.author.id),
-    getBalance(message.guild.id, challengedId),
+    getBalance(guild.id, interaction.user.id),
+    getBalance(guild.id, challengedId),
   ]);
 
   if (challengerBalance < amount) {
-    await message.reply(
+    await interaction.editReply(
       `No tienes suficientes pesetas. Tienes **${challengerBalance.toLocaleString("es-ES")} pesetas**.`
     );
     return;
   }
 
   if (challengedBalance < amount) {
-    const challenged = await message.guild.members.fetch(challengedId).catch(() => null);
+    const challenged = await guild.members.fetch(challengedId).catch(() => null);
     const name = challenged?.displayName ?? `<@${challengedId}>`;
-    await message.reply(
+    await interaction.editReply(
       `${name} no tiene suficientes pesetas (tiene **${challengedBalance.toLocaleString("es-ES")}**).`
     );
     return;
   }
 
-  const betKey = `${message.guild.id}:${challengedId}`;
+  const betKey = `${guild.id}:${challengedId}`;
   if (pendingBets.has(betKey)) {
-    await message.reply(`<@${challengedId}> ya tiene una apuesta pendiente.`);
+    await interaction.editReply(`<@${challengedId}> ya tiene una apuesta pendiente.`);
     return;
   }
 
   const bet: PendingBet = {
-    challengerId: message.author.id,
+    challengerId: interaction.user.id,
     challengedId,
-    guildId: message.guild.id,
+    guildId: guild.id,
     amount,
     expiresAt: Date.now() + BET_TIMEOUT_MS,
+    channelId: interaction.channelId,
   };
 
   pendingBets.set(betKey, bet);
 
-  // ── Build the challenge message with an Accept button ──────────────────────
   const acceptButton = new ButtonBuilder()
     .setCustomId(`bet_accept:${betKey}`)
     .setLabel("✅ Aceptar apuesta")
@@ -109,14 +108,13 @@ async function postBetChallenge(
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(acceptButton);
 
-  const challengeMsg = await message.reply({
+  const challengeMsg = await interaction.editReply({
     content:
-      `🎲 <@${challengedId}>, **<@${message.author.id}> te reta a apostar ${amount.toLocaleString("es-ES")} pesetas**.\n` +
+      `🎲 <@${challengedId}>, **<@${interaction.user.id}> te reta a apostar ${amount.toLocaleString("es-ES")} pesetas**.\n` +
       `Tienes **60 segundos** para aceptar.`,
     components: [row],
   });
 
-  // ── Button collector — only the challenged user can click ──────────────────
   const collector = challengeMsg.createMessageComponentCollector({
     componentType: ComponentType.Button,
     time: BET_TIMEOUT_MS,
@@ -124,35 +122,29 @@ async function postBetChallenge(
     max: 1,
   });
 
-  collector.on("collect", async (interaction: ButtonInteraction) => {
+  collector.on("collect", async (btnInteraction: ButtonInteraction) => {
     const currentBet = pendingBets.get(betKey);
     if (!currentBet) {
-      await interaction.update({ content: "❌ Esta apuesta ya no está disponible.", components: [] });
+      await btnInteraction.update({ content: "❌ Esta apuesta ya no está disponible.", components: [] });
       return;
     }
 
     pendingBets.delete(betKey);
 
-    // Disable the button while resolving
-    await interaction.update({
+    await btnInteraction.update({
       content: `🎲 **<@${currentBet.challengerId}> vs <@${currentBet.challengedId}>** — ¡Decidiendo...!`,
       components: [],
     });
 
-    await resolveBet(currentBet, {
-      reply: (content) => {
-        if (message.channel instanceof TextChannel) {
-          return message.channel.send(content);
-        }
-        return Promise.resolve();
-      },
+    await resolveBet(currentBet, (content) => {
+      const channel = btnInteraction.channel;
+      if (channel instanceof TextChannel) return channel.send(content);
+      return Promise.resolve();
     });
   });
 
   collector.on("end", (collected) => {
-    const stillPending = pendingBets.get(betKey);
-    if (stillPending && collected.size === 0) {
-      // Timed out without being accepted
+    if (pendingBets.get(betKey) && collected.size === 0) {
       pendingBets.delete(betKey);
       const disabledButton = new ButtonBuilder()
         .setCustomId(`bet_accept:${betKey}`)
@@ -160,30 +152,47 @@ async function postBetChallenge(
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(true);
 
-      const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(disabledButton);
-
       challengeMsg
         .edit({
-          content: `⏰ La apuesta de **${amount.toLocaleString("es-ES")} pesetas** entre <@${message.author.id}> y <@${challengedId}> ha expirado.`,
-          components: [disabledRow],
+          content: `⏰ La apuesta de **${amount.toLocaleString("es-ES")} pesetas** entre <@${interaction.user.id}> y <@${challengedId}> ha expirado.`,
+          components: [new ActionRowBuilder<ButtonBuilder>().addComponents(disabledButton)],
         })
         .catch(() => {});
     }
   });
 }
 
-// ─── Interactive flow ─────────────────────────────────────────────────────────
-async function handleApostarInteractive(message: Message): Promise<void> {
-  if (!message.guild) return;
+// ─── /apostar ─────────────────────────────────────────────────────────────────
+export async function handleApostar(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guild) return;
 
-  // ── Step 1: pick opponent ──────────────────────────────────────────────────
+  await interaction.deferReply();
+
+  const rival = interaction.options.getUser("rival");
+  const cantidad = interaction.options.getInteger("cantidad");
+
+  // Both params provided — post challenge directly
+  if (rival && cantidad) {
+    if (rival.id === interaction.user.id) {
+      await interaction.editReply("No puedes apostar contra ti mismo.");
+      return;
+    }
+    if (rival.bot) {
+      await interaction.editReply("No puedes apostar contra un bot.");
+      return;
+    }
+    await postBetChallenge(interaction, rival.id, cantidad);
+    return;
+  }
+
+  // Interactive flow — pick opponent first
   const userSelect = new UserSelectMenuBuilder()
     .setCustomId("apostar_user")
     .setPlaceholder("Elige a tu rival...");
 
   const row1 = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(userSelect);
 
-  const reply = await message.reply({
+  const reply = await interaction.editReply({
     content: "🎲 **Apostar** — Elige a quién quieres retar:",
     components: [row1],
   });
@@ -191,7 +200,7 @@ async function handleApostarInteractive(message: Message): Promise<void> {
   const userCollector = reply.createMessageComponentCollector({
     componentType: ComponentType.UserSelect,
     time: 60_000,
-    filter: (i) => i.user.id === message.author.id,
+    filter: (i) => i.user.id === interaction.user.id,
     max: 1,
   });
 
@@ -199,7 +208,7 @@ async function handleApostarInteractive(message: Message): Promise<void> {
     const targetUser = userInteraction.users.first();
     if (!targetUser) return;
 
-    if (targetUser.id === message.author.id) {
+    if (targetUser.id === interaction.user.id) {
       await userInteraction.update({ content: "❌ No puedes apostar contra ti mismo.", components: [] });
       return;
     }
@@ -208,8 +217,7 @@ async function handleApostarInteractive(message: Message): Promise<void> {
       return;
     }
 
-    // ── Step 2: pick amount ────────────────────────────────────────────────
-    const challengerBalance = await getBalance(message.guild!.id, message.author.id);
+    const challengerBalance = await getBalance(interaction.guild!.id, interaction.user.id);
 
     const amountSelect = new StringSelectMenuBuilder()
       .setCustomId("apostar_amount")
@@ -234,17 +242,15 @@ async function handleApostarInteractive(message: Message): Promise<void> {
         },
       ]);
 
-    const row2 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(amountSelect);
-
     await userInteraction.update({
       content: `🎲 **Apostar contra ${targetUser.displayName}** — Elige la cantidad:`,
-      components: [row2],
+      components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(amountSelect)],
     });
 
     const amountCollector = reply.createMessageComponentCollector({
       componentType: ComponentType.StringSelect,
       time: 60_000,
-      filter: (i) => i.user.id === message.author.id,
+      filter: (i) => i.user.id === interaction.user.id,
       max: 1,
     });
 
@@ -257,10 +263,11 @@ async function handleApostarInteractive(message: Message): Promise<void> {
           components: [],
         });
 
-        if (!(message.channel instanceof TextChannel)) return;
+        const channel = interaction.channel;
+        if (!(channel instanceof TextChannel)) return;
 
-        const msgCollector = message.channel.createMessageCollector({
-          filter: (m) => m.author.id === message.author.id,
+        const msgCollector = channel.createMessageCollector({
+          filter: (m) => m.author.id === interaction.user.id,
           time: 30_000,
           max: 1,
         });
@@ -271,11 +278,11 @@ async function handleApostarInteractive(message: Message): Promise<void> {
           await reply.delete().catch(() => {});
 
           if (isNaN(amount) || amount <= 0) {
-            await message.reply("❌ Cantidad no válida. Apuesta cancelada.");
+            await interaction.followUp({ content: "❌ Cantidad no válida. Apuesta cancelada.", ephemeral: true });
             return;
           }
 
-          await postBetChallenge(message, targetUser.id, amount);
+          await postBetChallenge(interaction, targetUser.id, amount);
         });
 
         msgCollector.on("end", (collected) => {
@@ -288,10 +295,9 @@ async function handleApostarInteractive(message: Message): Promise<void> {
       }
 
       const amount = selected === "allin" ? challengerBalance : parseInt(selected, 10);
-
       await amountInteraction.update({ content: "⏳", components: [] });
       await reply.delete().catch(() => {});
-      await postBetChallenge(message, targetUser.id, amount);
+      await postBetChallenge(interaction, targetUser.id, amount);
     });
 
     amountCollector.on("end", (collected) => {
@@ -306,56 +312,4 @@ async function handleApostarInteractive(message: Message): Promise<void> {
       reply.edit({ content: "⏰ Tiempo agotado. Apuesta cancelada.", components: [] }).catch(() => {});
     }
   });
-}
-
-// ─── !torrente apostar ────────────────────────────────────────────────────────
-export async function handleApostar(message: Message): Promise<void> {
-  if (!message.guild) return;
-
-  const mentioned = message.mentions.users.first();
-  const args = message.content.trim().split(/\s+/);
-  const amountArg = args[3];
-
-  if (mentioned && amountArg) {
-    const amount = parseInt(amountArg, 10);
-    if (mentioned.id === message.author.id) {
-      await message.reply("No puedes apostar contra ti mismo.");
-      return;
-    }
-    if (mentioned.bot) {
-      await message.reply("No puedes apostar contra un bot.");
-      return;
-    }
-    if (isNaN(amount) || amount <= 0) {
-      await message.reply("Indica una cantidad válida. Ej: `!torrente apostar @user 500`");
-      return;
-    }
-    await postBetChallenge(message, mentioned.id, amount);
-    return;
-  }
-
-  await handleApostarInteractive(message);
-}
-
-// ─── !torrente acepto — text fallback ────────────────────────────────────────
-export async function handleAcepto(message: Message): Promise<void> {
-  if (!message.guild) return;
-
-  const betKey = `${message.guild.id}:${message.author.id}`;
-  const bet = pendingBets.get(betKey);
-
-  if (!bet) {
-    await message.reply("No tienes ninguna apuesta pendiente.");
-    return;
-  }
-
-  if (Date.now() > bet.expiresAt) {
-    pendingBets.delete(betKey);
-    await message.reply("La apuesta ha expirado.");
-    return;
-  }
-
-  pendingBets.delete(betKey);
-
-  await resolveBet(bet, message);
 }

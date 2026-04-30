@@ -1,4 +1,4 @@
-import { Message, TextBasedChannel } from "discord.js";
+import { ChatInputCommandInteraction, GuildMember } from "discord.js";
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -16,13 +16,6 @@ import { promisify } from "util";
 const execFileAsync = promisify(execFile);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-// Helper to send to a channel without TS complaining about PartialGroupDMChannel
-function sendToChannel(channel: Message["channel"], content: string): void {
-  if ("send" in channel) {
-    (channel as { send(content: string): Promise<unknown> }).send(content).catch(() => {});
-  }
-}
-
 interface Song {
   title: string;
   url: string;
@@ -35,27 +28,30 @@ interface GuildMusicState {
   idleTimer: NodeJS.Timeout | null;
   // Active child processes for current song — killed on skip/stop
   activeProcesses: ReturnType<typeof spawn>[];
+  // Text channel to send now-playing messages
+  textChannelId: string;
 }
 
 // ─── Per-guild state ──────────────────────────────────────────────────────────
 const guildStates = new Map<string, GuildMusicState>();
 
-const IDLE_TIMEOUT_MS = 120_000; // Leave voice after 2 min idle
+const IDLE_TIMEOUT_MS = 120_000;
+const COOKIES_PATH = process.env.YTDLP_COOKIES_PATH ?? "/app/data/cookies.txt";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function getOrCreateState(guildId: string): GuildMusicState {
+function getOrCreateState(guildId: string, textChannelId: string): GuildMusicState {
   if (!guildStates.has(guildId)) {
     guildStates.set(guildId, {
       queue: [],
       player: createAudioPlayer(),
       idleTimer: null,
       activeProcesses: [],
+      textChannelId,
     });
   }
   return guildStates.get(guildId)!;
 }
 
-// Kill and clear active yt-dlp/ffmpeg processes for a guild
 function killActiveProcesses(state: GuildMusicState): void {
   for (const proc of state.activeProcesses) {
     try { proc.kill("SIGKILL"); } catch { /* already dead */ }
@@ -70,27 +66,30 @@ function clearIdleTimer(state: GuildMusicState): void {
   }
 }
 
-function scheduleIdleLeave(guildId: string, state: GuildMusicState): void {
+function scheduleIdleLeave(guildId: string, state: GuildMusicState, client: import("discord.js").Client): void {
   clearIdleTimer(state);
   state.idleTimer = setTimeout(() => {
-    const connection = getVoiceConnection(guildId);
-    connection?.destroy();
+    getVoiceConnection(guildId)?.destroy();
     guildStates.delete(guildId);
   }, IDLE_TIMEOUT_MS);
 }
 
-const COOKIES_PATH = process.env.YTDLP_COOKIES_PATH ?? "/app/data/cookies.txt";
+// Send a message to the stored text channel for this guild
+function sendToGuildChannel(client: import("discord.js").Client, channelId: string, content: string): void {
+  const channel = client.channels.cache.get(channelId);
+  if (channel?.isTextBased() && "send" in channel) {
+    (channel as { send(c: string): Promise<unknown> }).send(content).catch(() => {});
+  }
+}
 
-// Resolve a search query or URL → { title, originalUrl } using yt-dlp
-// We only fetch title + the canonical YouTube URL (not the stream URL).
-// The actual audio is streamed later by yt-dlp in playNext().
+// ─── yt-dlp resolve ───────────────────────────────────────────────────────────
 async function resolveWithYtDlp(query: string): Promise<{ title: string; url: string }> {
   const isUrl = /^https?:\/\//i.test(query);
   const target = isUrl ? query : `ytsearch1:${query}`;
 
   const args = [
     "--print", "title",
-    "--print", "webpage_url",  // canonical YouTube URL, not the expiring stream URL
+    "--print", "webpage_url",
     "--no-playlist",
     "--js-runtimes", "node",
     "--extractor-args", "youtube:player_client=web",
@@ -105,34 +104,25 @@ async function resolveWithYtDlp(query: string): Promise<{ title: string; url: st
   args.push(target);
 
   const { stdout } = await execFileAsync("yt-dlp", args);
-
   const lines = stdout.trim().split("\n");
-  if (lines.length < 2) {
-    throw new Error("yt-dlp returned unexpected output");
-  }
+  if (lines.length < 2) throw new Error("yt-dlp returned unexpected output");
 
-  const title = lines[0].trim();
-  const url = lines[1].trim();
-
-  return { title, url };
+  return { title: lines[0].trim(), url: lines[1].trim() };
 }
 
-// Play the next song in the queue for a guild
-function playNext(guildId: string, channel: Message["channel"]): void {
+// ─── Playback ─────────────────────────────────────────────────────────────────
+function playNext(guildId: string, client: import("discord.js").Client): void {
   const state = guildStates.get(guildId);
   if (!state) return;
 
   const song = state.queue[0];
   if (!song) {
-    scheduleIdleLeave(guildId, state);
+    scheduleIdleLeave(guildId, state, client);
     return;
   }
 
-  // Kill any processes from the previous song before starting new ones
   killActiveProcesses(state);
 
-  // yt-dlp downloads the audio and pipes it to stdout (-o -)
-  // ffmpeg reads from stdin and converts to raw PCM for discord.js
   const ytdlpArgs = [
     "-o", "-",
     "-f", "bestaudio/best",
@@ -143,56 +133,32 @@ function playNext(guildId: string, channel: Message["channel"]): void {
     "--remote-components", "ejs:github",
   ];
 
-  if (existsSync(COOKIES_PATH)) {
-    ytdlpArgs.push("--cookies", COOKIES_PATH);
-  }
-
+  if (existsSync(COOKIES_PATH)) ytdlpArgs.push("--cookies", COOKIES_PATH);
   ytdlpArgs.push(song.url);
 
   const ytdlp = spawn("yt-dlp", ytdlpArgs, { stdio: ["ignore", "pipe", "pipe"] });
   const ffmpeg = spawn("ffmpeg", [
     "-loglevel", "error",
     "-i", "pipe:0",
-    "-vn",
-    "-f", "s16le",
-    "-ar", "48000",
-    "-ac", "2",
+    "-vn", "-f", "s16le", "-ar", "48000", "-ac", "2",
     "pipe:1",
   ], { stdio: ["pipe", "pipe", "pipe"] });
 
-  // Track processes so we can kill them on skip/stop
   state.activeProcesses = [ytdlp, ffmpeg];
 
-  // Pipe yt-dlp stdout → ffmpeg stdin
-  // Handle EPIPE gracefully (happens when ffmpeg is killed mid-stream)
   ytdlp.stdout.pipe(ffmpeg.stdin);
   ffmpeg.stdin.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code !== "EPIPE") console.error(`[Music] ffmpeg stdin error:`, err);
+    if (err.code !== "EPIPE") console.error("[Music] ffmpeg stdin error:", err);
   });
   ytdlp.stdout.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code !== "EPIPE") console.error(`[Music] yt-dlp stdout error:`, err);
+    if (err.code !== "EPIPE") console.error("[Music] yt-dlp stdout error:", err);
   });
+  ytdlp.stderr.on("data", (d) => { const m = d.toString().trim(); if (m) console.error(`[Music] yt-dlp: ${m}`); });
+  ffmpeg.stderr.on("data", (d) => { const m = d.toString().trim(); if (m) console.log(`[Music] ffmpeg: ${m.slice(0, 120)}`); });
+  ytdlp.on("error", (err: NodeJS.ErrnoException) => { if (err.code !== "EPIPE") console.error("[Music] yt-dlp spawn error:", err); });
+  ffmpeg.on("error", (err: NodeJS.ErrnoException) => { if (err.code !== "EPIPE") console.error("[Music] ffmpeg spawn error:", err); });
 
-  ytdlp.stderr.on("data", (d) => {
-    const msg = d.toString().trim();
-    if (msg) console.error(`[Music] yt-dlp: ${msg}`);
-  });
-
-  ffmpeg.stderr.on("data", (d) => {
-    const msg = d.toString().trim();
-    if (msg) console.log(`[Music] ffmpeg: ${msg.slice(0, 120)}`);
-  });
-
-  ytdlp.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code !== "EPIPE") console.error(`[Music] yt-dlp spawn error:`, err);
-  });
-  ffmpeg.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code !== "EPIPE") console.error(`[Music] ffmpeg spawn error:`, err);
-  });
-
-  const resource = createAudioResource(ffmpeg.stdout, {
-    inputType: StreamType.Raw,
-  });
+  const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw });
 
   state.player.play(resource);
   console.log(`[Music] Playing: ${song.title}`);
@@ -200,67 +166,61 @@ function playNext(guildId: string, channel: Message["channel"]): void {
   state.player.removeAllListeners(AudioPlayerStatus.Idle);
   state.player.once(AudioPlayerStatus.Idle, () => {
     state.queue.shift();
-    playNext(guildId, channel);
+    playNext(guildId, client);
   });
 
   state.player.removeAllListeners("error");
   state.player.on("error", (err) => {
     console.error(`[Music] Player error in guild ${guildId}:`, err);
     state.queue.shift();
-    sendToChannel(channel, `Error reproduciendo la canción. Saltando...`);
-    playNext(guildId, channel);
+    sendToGuildChannel(client, state.textChannelId, "Error reproduciendo la canción. Saltando...");
+    playNext(guildId, client);
   });
 
   clearIdleTimer(state);
-  sendToChannel(channel, `▶️ Reproduciendo: **${song.title}** (pedida por ${song.requestedBy})`);
+  sendToGuildChannel(client, state.textChannelId, `▶️ Reproduciendo: **${song.title}** (pedida por ${song.requestedBy})`);
 }
 
 // ─── Command handlers ─────────────────────────────────────────────────────────
 
-// !torrente pon <query or URL>
-export async function handlePon(message: Message, args: string): Promise<void> {
-  if (!args) {
-    await message.reply("Usa: `!torrente pon <nombre de canción o URL>`");
-    return;
-  }
+export async function handlePon(interaction: ChatInputCommandInteraction): Promise<void> {
+  const query = interaction.options.getString("cancion", true);
+  const member = interaction.member as GuildMember;
+  const voiceChannel = member?.voice.channel;
 
-  const voiceChannel = message.member?.voice.channel;
   if (!voiceChannel) {
-    await message.reply("Tienes que estar en un canal de voz primero.");
+    await interaction.reply({ content: "Tienes que estar en un canal de voz primero.", ephemeral: true });
     return;
   }
 
-  const guildId = message.guild!.id;
-  const state = getOrCreateState(guildId);
+  await interaction.deferReply();
 
-  // Show searching message
-  const searching = await message.reply(`Buscando **${args}**...`);
+  const guildId = interaction.guild!.id;
+  const state = getOrCreateState(guildId, interaction.channelId);
 
   let songInfo: { title: string; url: string };
   try {
-    songInfo = await resolveWithYtDlp(args);
+    songInfo = await resolveWithYtDlp(query);
   } catch (err) {
     console.error("[Music] yt-dlp error:", err);
-    await searching.edit("No encontré esa canción. Intenta con otra búsqueda o URL.");
+    await interaction.editReply("No encontré esa canción. Intenta con otra búsqueda o URL.");
     return;
   }
 
   const song: Song = {
     title: songInfo.title,
     url: songInfo.url,
-    requestedBy: message.author.username,
+    requestedBy: interaction.user.username,
   };
 
   state.queue.push(song);
-  await searching.delete().catch(() => {});
 
-  // Join voice if not already connected
   let connection = getVoiceConnection(guildId);
   if (!connection) {
     connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId,
-      adapterCreator: message.guild!.voiceAdapterCreator,
+      adapterCreator: interaction.guild!.voiceAdapterCreator,
     });
 
     connection.on(VoiceConnectionStatus.Disconnected, () => {
@@ -270,7 +230,6 @@ export async function handlePon(message: Message, args: string): Promise<void> {
 
     connection.subscribe(state.player);
 
-    // Wait for the connection to be ready before playing
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
       console.log("[Music] Voice connection is ready");
@@ -278,26 +237,25 @@ export async function handlePon(message: Message, args: string): Promise<void> {
       console.error("[Music] Voice connection failed to become ready in 10s");
       connection.destroy();
       guildStates.delete(guildId);
-      sendToChannel(message.channel, "Error: no pude conectarme al canal de voz.");
+      await interaction.editReply("Error: no pude conectarme al canal de voz.");
       return;
     }
   }
 
-  // If player is idle (nothing playing), start now. Otherwise just enqueue.
   if (state.player.state.status === AudioPlayerStatus.Idle && state.queue.length === 1) {
-    playNext(guildId, message.channel);
-  } else if (state.queue.length > 1) {
-    sendToChannel(message.channel, `✅ Añadida a la cola (#${state.queue.length}): **${song.title}**`);
+    await interaction.editReply(`🔍 Encontrada: **${song.title}**`);
+    playNext(guildId, interaction.client);
+  } else {
+    await interaction.editReply(`✅ Añadida a la cola (#${state.queue.length}): **${song.title}**`);
   }
 }
 
-// !torrente cola
-export async function handleCola(message: Message): Promise<void> {
-  const guildId = message.guild!.id;
+export async function handleCola(interaction: ChatInputCommandInteraction): Promise<void> {
+  const guildId = interaction.guild!.id;
   const state = guildStates.get(guildId);
 
   if (!state || state.queue.length === 0) {
-    await message.reply("La cola está vacía.");
+    await interaction.reply({ content: "La cola está vacía.", ephemeral: true });
     return;
   }
 
@@ -306,34 +264,31 @@ export async function handleCola(message: Message): Promise<void> {
     return `${prefix} **${song.title}** — pedida por ${song.requestedBy}`;
   });
 
-  await message.reply(`**Cola de música:**\n${lines.join("\n")}`);
+  await interaction.reply(`**Cola de música:**\n${lines.join("\n")}`);
 }
 
-// !torrente skip
-export async function handleSkip(message: Message): Promise<void> {
-  const guildId = message.guild!.id;
+export async function handleSkip(interaction: ChatInputCommandInteraction): Promise<void> {
+  const guildId = interaction.guild!.id;
   const state = guildStates.get(guildId);
 
   if (!state || state.queue.length === 0) {
-    await message.reply("No hay nada reproduciéndose.");
+    await interaction.reply({ content: "No hay nada reproduciéndose.", ephemeral: true });
     return;
   }
 
   const skipped = state.queue[0].title;
-  // Kill current processes BEFORE stopping the player to avoid EPIPE crash
   killActiveProcesses(state);
   state.player.stop();
-  await message.reply(`⏭️ Saltando: **${skipped}**`);
+  await interaction.reply(`⏭️ Saltando: **${skipped}**`);
 }
 
-// !torrente stop
-export async function handleStop(message: Message): Promise<void> {
-  const guildId = message.guild!.id;
+export async function handleStop(interaction: ChatInputCommandInteraction): Promise<void> {
+  const guildId = interaction.guild!.id;
   const state = guildStates.get(guildId);
-
   const connection = getVoiceConnection(guildId);
+
   if (!connection && !state) {
-    await message.reply("No estoy reproduciendo nada.");
+    await interaction.reply({ content: "No estoy reproduciendo nada.", ephemeral: true });
     return;
   }
 
@@ -347,33 +302,31 @@ export async function handleStop(message: Message): Promise<void> {
   }
 
   connection?.destroy();
-  await message.reply("⏹️ Parado y desconectado.");
+  await interaction.reply("⏹️ Parado y desconectado.");
 }
 
-// !torrente pausa
-export async function handlePausa(message: Message): Promise<void> {
-  const guildId = message.guild!.id;
+export async function handlePausa(interaction: ChatInputCommandInteraction): Promise<void> {
+  const guildId = interaction.guild!.id;
   const state = guildStates.get(guildId);
 
   if (!state || state.player.state.status !== AudioPlayerStatus.Playing) {
-    await message.reply("No hay nada reproduciéndose.");
+    await interaction.reply({ content: "No hay nada reproduciéndose.", ephemeral: true });
     return;
   }
 
   state.player.pause();
-  await message.reply("⏸️ Pausado.");
+  await interaction.reply("⏸️ Pausado.");
 }
 
-// !torrente sigue
-export async function handleSigue(message: Message): Promise<void> {
-  const guildId = message.guild!.id;
+export async function handleSigue(interaction: ChatInputCommandInteraction): Promise<void> {
+  const guildId = interaction.guild!.id;
   const state = guildStates.get(guildId);
 
   if (!state || state.player.state.status !== AudioPlayerStatus.Paused) {
-    await message.reply("No hay nada pausado.");
+    await interaction.reply({ content: "No hay nada pausado.", ephemeral: true });
     return;
   }
 
   state.player.unpause();
-  await message.reply("▶️ Reanudando.");
+  await interaction.reply("▶️ Reanudando.");
 }
