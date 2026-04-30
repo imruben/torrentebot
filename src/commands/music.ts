@@ -80,11 +80,11 @@ async function resolveWithYtDlp(query: string): Promise<{ title: string; url: st
   const args = [
     "--print", "title",
     "--print", "url",
-    "-f", "bestaudio[ext=webm]/bestaudio/best",
+    "-f", "bestaudio/best",
     "--no-playlist",
     "--js-runtimes", "node",
-    // Use android player client to reduce bot detection
-    "--extractor-args", "youtube:player_client=android,web",
+    // tv_embedded client bypasses sign-in requirement on server IPs
+    "--extractor-args", "youtube:player_client=tv_embedded,android",
   ];
 
   // Add cookies if the file exists
