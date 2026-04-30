@@ -9,6 +9,7 @@ import {
   StreamType,
 } from "@discordjs/voice";
 import { execFile } from "child_process";
+import { existsSync } from "fs";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
@@ -66,20 +67,34 @@ function scheduleIdleLeave(guildId: string, state: GuildMusicState): void {
   }, IDLE_TIMEOUT_MS);
 }
 
+// Path where the YouTube cookies file should be placed (netscape format)
+// Export it from your browser using a "cookies.txt" extension while logged into YouTube
+const COOKIES_PATH = process.env.YTDLP_COOKIES_PATH ?? "/app/cookies.txt";
+
 // Resolve a search query or URL to a { title, url } pair using yt-dlp
 async function resolveWithYtDlp(query: string): Promise<{ title: string; url: string }> {
   // If the query is not already a URL, treat it as a search term
   const isUrl = /^https?:\/\//i.test(query);
   const target = isUrl ? query : `ytsearch1:${query}`;
 
-  const { stdout } = await execFileAsync("yt-dlp", [
+  const args = [
     "--print", "title",
     "--print", "url",
     "-f", "bestaudio[ext=webm]/bestaudio/best",
     "--no-playlist",
     "--js-runtimes", "node",
-    target,
-  ]);
+    // Use android player client to reduce bot detection
+    "--extractor-args", "youtube:player_client=android,web",
+  ];
+
+  // Add cookies if the file exists
+  if (existsSync(COOKIES_PATH)) {
+    args.push("--cookies", COOKIES_PATH);
+  }
+
+  args.push(target);
+
+  const { stdout } = await execFileAsync("yt-dlp", args);
 
   const lines = stdout.trim().split("\n");
   if (lines.length < 2) {
