@@ -1,5 +1,6 @@
 import { ChatInputCommandInteraction, GuildMember, Message, TextChannel, VoiceChannel } from "discord.js";
 import { SILENT } from "../utils";
+import { torrente } from "../torrente";
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -104,8 +105,8 @@ async function sendNowPlaying(
   if (!channel?.isTextBased() || !("send" in channel)) return;
 
   const label = song.requestedBy === "autodj"
-    ? `🤖 Auto-DJ: **${song.title}**`
-    : `▶️ Reproduciendo: **${song.title}** (pedida por ${song.requestedBy}) — reacciona con ⏭️ para votar skip`;
+    ? torrente("now_playing_autodj", { title: song.title })
+    : torrente("now_playing", { title: song.title, requestedBy: song.requestedBy });
 
   let msg: Message;
   try {
@@ -151,7 +152,7 @@ async function sendNowPlaying(
       killActiveProcesses(state);
       state.player.stop();
       try {
-        await msg.edit({ content: `⏭️ Votación completada (${userVotes}/${threshold}) — saltando **${skippedTitle}**` });
+        await msg.edit({ content: torrente("vote_skip", { title: skippedTitle, votes: String(userVotes), threshold: String(threshold) }) });
       } catch { /* message may be deleted */ }
     }
   });
@@ -332,7 +333,7 @@ function playNext(guildId: string, client: import("discord.js").Client): void {
     state.queue.shift();
     const channel = client.channels.cache.get(state.textChannelId);
     if (channel?.isTextBased() && "send" in channel) {
-      (channel as TextChannel).send({ content: "Error reproduciendo la canción. Saltando...", ...SILENT }).catch(() => {});
+      (channel as TextChannel).send({ content: torrente("error_generic"), ...SILENT }).catch(() => {});
     }
     playNext(guildId, client);
   });
@@ -351,7 +352,7 @@ export async function handlePon(interaction: ChatInputCommandInteraction): Promi
   const voiceChannel = member?.voice.channel;
 
   if (!voiceChannel) {
-    await interaction.reply({ content: "Tienes que estar en un canal de voz primero.", ephemeral: true });
+    await interaction.reply({ content: torrente("error_no_voice"), ephemeral: true });
     return;
   }
 
@@ -365,7 +366,7 @@ export async function handlePon(interaction: ChatInputCommandInteraction): Promi
     songInfo = await resolveWithYtDlp(query);
   } catch (err) {
     console.error("[Music] yt-dlp error:", err);
-    await interaction.editReply("No encontré esa canción. Intenta con otra búsqueda o URL.");
+    await interaction.editReply(torrente("error_resolve"));
     return;
   }
 
@@ -399,16 +400,16 @@ export async function handlePon(interaction: ChatInputCommandInteraction): Promi
       console.error("[Music] Voice connection failed to become ready in 10s");
       connection.destroy();
       guildStates.delete(guildId);
-      await interaction.editReply("Error: no pude conectarme al canal de voz.");
+      await interaction.editReply(torrente("error_voice_connect"));
       return;
     }
   }
 
   if (state.player.state.status === AudioPlayerStatus.Idle && state.queue.length === 1) {
-    await interaction.editReply(`🔍 Encontrada: **${song.title}**`);
+    await interaction.editReply(torrente("song_playing", { title: song.title }));
     playNext(guildId, interaction.client);
   } else {
-    await interaction.editReply(`✅ Añadida a la cola (#${state.queue.length}): **${song.title}**`);
+    await interaction.editReply(torrente("song_added", { title: song.title }));
   }
 }
 
@@ -417,7 +418,7 @@ export async function handleCola(interaction: ChatInputCommandInteraction): Prom
   const state = guildStates.get(guildId);
 
   if (!state || state.queue.length === 0) {
-    await interaction.reply({ content: "La cola está vacía.", ephemeral: true });
+    await interaction.reply({ content: torrente("queue_empty"), ephemeral: true });
     return;
   }
 
@@ -428,7 +429,7 @@ export async function handleCola(interaction: ChatInputCommandInteraction): Prom
     return `${prefix} **${song.title}** — pedida por ${by}`;
   });
 
-  await interaction.reply({ content: `**Cola de música**${autoDjStatus}\n${lines.join("\n")}`, ...SILENT });
+  await interaction.reply({ content: `${torrente("queue_header")}${autoDjStatus}\n${lines.join("\n")}`, ...SILENT });
 }
 
 export async function handleSkip(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -436,14 +437,14 @@ export async function handleSkip(interaction: ChatInputCommandInteraction): Prom
   const state = guildStates.get(guildId);
 
   if (!state || state.queue.length === 0) {
-    await interaction.reply({ content: "No hay nada reproduciéndose.", ephemeral: true });
+    await interaction.reply({ content: torrente("error_no_music"), ephemeral: true });
     return;
   }
 
   const skipped = state.queue[0].title;
   killActiveProcesses(state);
   state.player.stop();
-  await interaction.reply({ content: `⏭️ Saltando: **${skipped}**`, ...SILENT });
+  await interaction.reply({ content: torrente("skip", { title: skipped }), ...SILENT });
 }
 
 export async function handleStop(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -452,7 +453,7 @@ export async function handleStop(interaction: ChatInputCommandInteraction): Prom
   const connection = getVoiceConnection(guildId);
 
   if (!connection && !state) {
-    await interaction.reply({ content: "No estoy reproduciendo nada.", ephemeral: true });
+    await interaction.reply({ content: torrente("error_not_connected"), ephemeral: true });
     return;
   }
 
@@ -468,7 +469,7 @@ export async function handleStop(interaction: ChatInputCommandInteraction): Prom
   }
 
   connection?.destroy();
-  await interaction.reply({ content: "⏹️ Parado y desconectado.", ...SILENT });
+  await interaction.reply({ content: torrente("stop"), ...SILENT });
 }
 
 export async function handlePausa(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -476,12 +477,12 @@ export async function handlePausa(interaction: ChatInputCommandInteraction): Pro
   const state = guildStates.get(guildId);
 
   if (!state || state.player.state.status !== AudioPlayerStatus.Playing) {
-    await interaction.reply({ content: "No hay nada reproduciéndose.", ephemeral: true });
+    await interaction.reply({ content: torrente("error_not_playing"), ephemeral: true });
     return;
   }
 
   state.player.pause();
-  await interaction.reply({ content: "⏸️ Pausado.", ...SILENT });
+  await interaction.reply({ content: torrente("pause"), ...SILENT });
 }
 
 export async function handleSigue(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -489,12 +490,12 @@ export async function handleSigue(interaction: ChatInputCommandInteraction): Pro
   const state = guildStates.get(guildId);
 
   if (!state || state.player.state.status !== AudioPlayerStatus.Paused) {
-    await interaction.reply({ content: "No hay nada pausado.", ephemeral: true });
+    await interaction.reply({ content: torrente("error_not_paused"), ephemeral: true });
     return;
   }
 
   state.player.unpause();
-  await interaction.reply({ content: "▶️ Reanudando.", ...SILENT });
+  await interaction.reply({ content: torrente("resume"), ...SILENT });
 }
 
 export async function handleAutodj(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -502,16 +503,14 @@ export async function handleAutodj(interaction: ChatInputCommandInteraction): Pr
   const state = guildStates.get(guildId);
 
   if (!state) {
-    await interaction.reply({ content: "No hay nada reproduciéndose. Pon una canción primero.", ephemeral: true });
+    await interaction.reply({ content: torrente("autodj_no_state"), ephemeral: true });
     return;
   }
 
   state.autoDj = !state.autoDj;
 
   await interaction.reply({
-    content: state.autoDj
-      ? "🤖 Auto-DJ **activado** — cuando la cola se vacíe, pondré canciones relacionadas automáticamente."
-      : "🤖 Auto-DJ **desactivado**.",
+    content: state.autoDj ? torrente("autodj_on") : torrente("autodj_off"),
     ...SILENT,
   });
 }

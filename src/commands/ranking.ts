@@ -1,6 +1,7 @@
 import { ChatInputCommandInteraction } from "discord.js";
 import { getLeaderboard } from "../db";
 import { SILENT } from "../utils";
+import { torrente } from "../torrente";
 
 export async function handleRanking(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) return;
@@ -10,7 +11,7 @@ export async function handleRanking(interaction: ChatInputCommandInteraction): P
   const rows = await getLeaderboard(interaction.guild.id);
 
   if (rows.length === 0) {
-    await interaction.editReply("Aún no hay nadie en el ranking.");
+    await interaction.editReply(torrente("ranking_empty"));
     return;
   }
 
@@ -30,5 +31,5 @@ export async function handleRanking(interaction: ChatInputCommandInteraction): P
     })
   );
 
-  await interaction.editReply(`🏆 **Ranking de pesetas**\n\n${lines.join("\n")}`);
+  await interaction.editReply(`${torrente("ranking_header")}\n\n${lines.join("\n")}`);
 }

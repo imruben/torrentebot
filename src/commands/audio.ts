@@ -10,6 +10,7 @@ import {
 import path from "path";
 import fs from "fs";
 import { SILENT } from "../utils";
+import { torrente } from "../torrente";
 
 const AUDIO_FILES: Record<string, string> = {
   pajillas: path.join(__dirname, "..", "..", "assets", "audio", "greeting.mp3"),
@@ -21,7 +22,7 @@ export async function handleAudio(interaction: ChatInputCommandInteraction): Pro
   const voiceChannel = member?.voice.channel as VoiceBasedChannel | null;
 
   if (!voiceChannel) {
-    await interaction.reply({ content: "Tienes que estar en un canal de voz primero.", ephemeral: true });
+    await interaction.reply({ content: torrente("error_no_voice"), ephemeral: true });
     return;
   }
 
@@ -29,11 +30,11 @@ export async function handleAudio(interaction: ChatInputCommandInteraction): Pro
   const audioFile = AUDIO_FILES[clip];
 
   if (!audioFile || !fs.existsSync(audioFile)) {
-    await interaction.reply({ content: `No se encontró el audio para \`${clip}\`.`, ephemeral: true });
+    await interaction.reply({ content: torrente("error_generic"), ephemeral: true });
     return;
   }
 
-  await interaction.reply({ content: "🎙️ Uniéndome al canal...", ...SILENT });
+  await interaction.reply({ content: torrente("audio_joining"), ...SILENT });
 
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
@@ -45,7 +46,7 @@ export async function handleAudio(interaction: ChatInputCommandInteraction): Pro
     await entersState(connection, VoiceConnectionStatus.Ready, 5_000);
   } catch {
     connection.destroy();
-    await interaction.editReply("No pude unirme al canal de voz.");
+    await interaction.editReply(torrente("error_voice_connect"));
     return;
   }
 
@@ -55,7 +56,7 @@ export async function handleAudio(interaction: ChatInputCommandInteraction): Pro
   connection.subscribe(player);
   player.play(resource);
 
-  await interaction.editReply("🎙️ Reproduciendo...");
+  await interaction.editReply(torrente("audio_playing"));
 
   player.on(AudioPlayerStatus.Idle, () => connection.destroy());
   player.on("error", (err) => {
