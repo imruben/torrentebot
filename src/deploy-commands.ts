@@ -50,6 +50,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("sigue")
     .setDescription("Reanuda la reproducción"),
+
+  new SlashCommandBuilder()
+    .setName("autodj")
+    .setDescription("Activa o desactiva el modo Auto-DJ"),
 ].map((cmd) => cmd.toJSON());
 
 const token = process.env.DISCORD_TOKEN;

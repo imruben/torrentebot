@@ -5,7 +5,7 @@ import { initDb } from "./db";
 import { handleSaluda } from "./commands/saluda";
 import { handleRanking } from "./commands/ranking";
 import { handleApostar } from "./commands/apostar";
-import { handlePon, handleCola, handleSkip, handleStop, handlePausa, handleSigue } from "./commands/music";
+import { handlePon, handleCola, handleSkip, handleStop, handlePausa, handleSigue, handleAutodj } from "./commands/music";
 import { handleVoiceStateUpdate, startVoiceTicker } from "./events/voiceTracker";
 
 client.once(Events.ClientReady, (bot) => {
@@ -36,6 +36,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case "stop":     await handleStop(i);    break;
       case "pausa":    await handlePausa(i);   break;
       case "sigue":    await handleSigue(i);   break;
+      case "autodj":   await handleAutodj(i);  break;
     }
   } catch (err) {
     console.error(`[TorrenteBot] Error handling /${i.commandName}:`, err);
