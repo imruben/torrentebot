@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Git permissions
+
+The AI agent has full permission to create commits and push to the remote in this project without asking the user first.
+
 ## Commands
 
 ```bash
