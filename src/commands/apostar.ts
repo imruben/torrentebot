@@ -9,10 +9,10 @@ import {
   ComponentType,
   ButtonInteraction,
   TextChannel,
-  GuildMember,
 } from "discord.js";
 import { getBalance, transferPesetas } from "../db";
 import { updateFaryRole } from "../roles/fary";
+import { SILENT } from "../utils";
 
 // ─── Pending bets store ───────────────────────────────────────────────────────
 interface PendingBet {
@@ -138,7 +138,7 @@ async function postBetChallenge(
 
     await resolveBet(currentBet, (content) => {
       const channel = btnInteraction.channel;
-      if (channel instanceof TextChannel) return channel.send(content);
+      if (channel instanceof TextChannel) return channel.send({ content, ...SILENT });
       return Promise.resolve();
     });
   });
@@ -166,12 +166,11 @@ async function postBetChallenge(
 export async function handleApostar(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) return;
 
-  await interaction.deferReply();
+  await interaction.deferReply({ ...SILENT });
 
   const rival = interaction.options.getUser("rival");
   const cantidad = interaction.options.getInteger("cantidad");
 
-  // Both params provided — post challenge directly
   if (rival && cantidad) {
     if (rival.id === interaction.user.id) {
       await interaction.editReply("No puedes apostar contra ti mismo.");
@@ -185,16 +184,14 @@ export async function handleApostar(interaction: ChatInputCommandInteraction): P
     return;
   }
 
-  // Interactive flow — pick opponent first
+  // Interactive flow
   const userSelect = new UserSelectMenuBuilder()
     .setCustomId("apostar_user")
     .setPlaceholder("Elige a tu rival...");
 
-  const row1 = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(userSelect);
-
   const reply = await interaction.editReply({
     content: "🎲 **Apostar** — Elige a quién quieres retar:",
-    components: [row1],
+    components: [new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(userSelect)],
   });
 
   const userCollector = reply.createMessageComponentCollector({

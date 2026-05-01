@@ -3,10 +3,8 @@ import "dotenv/config";
 import client from "./client";
 import { initDb } from "./db";
 import { handleSaluda } from "./commands/saluda";
-import { handlePesetas } from "./commands/pesetas";
 import { handleRanking } from "./commands/ranking";
 import { handleApostar } from "./commands/apostar";
-import { handleAyuda } from "./commands/help";
 import { handlePon, handleCola, handleSkip, handleStop, handlePausa, handleSigue } from "./commands/music";
 import { handleVoiceStateUpdate, startVoiceTicker } from "./events/voiceTracker";
 
@@ -30,8 +28,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     switch (i.commandName) {
       case "saluda":   await handleSaluda(i);  break;
-      case "pesetas":  await handlePesetas(i); break;
-      case "ranking":  await handleRanking(i); break;
+      case "pesetas":  await handleRanking(i); break;
       case "apostar":  await handleApostar(i); break;
       case "pon":      await handlePon(i);     break;
       case "cola":     await handleCola(i);    break;
@@ -39,7 +36,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case "stop":     await handleStop(i);    break;
       case "pausa":    await handlePausa(i);   break;
       case "sigue":    await handleSigue(i);   break;
-      case "ayuda":    await handleAyuda(i);   break;
     }
   } catch (err) {
     console.error(`[TorrenteBot] Error handling /${i.commandName}:`, err);

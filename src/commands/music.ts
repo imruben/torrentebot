@@ -1,4 +1,5 @@
 import { ChatInputCommandInteraction, GuildMember } from "discord.js";
+import { SILENT } from "../utils";
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -74,11 +75,11 @@ function scheduleIdleLeave(guildId: string, state: GuildMusicState, client: impo
   }, IDLE_TIMEOUT_MS);
 }
 
-// Send a message to the stored text channel for this guild
+// Send a message to the stored text channel for this guild (silent — no notification sound)
 function sendToGuildChannel(client: import("discord.js").Client, channelId: string, content: string): void {
   const channel = client.channels.cache.get(channelId);
   if (channel?.isTextBased() && "send" in channel) {
-    (channel as { send(c: string): Promise<unknown> }).send(content).catch(() => {});
+    (channel as { send(opts: object): Promise<unknown> }).send({ content, ...SILENT }).catch(() => {});
   }
 }
 
@@ -193,7 +194,7 @@ export async function handlePon(interaction: ChatInputCommandInteraction): Promi
     return;
   }
 
-  await interaction.deferReply();
+  await interaction.deferReply({ ...SILENT });
 
   const guildId = interaction.guild!.id;
   const state = getOrCreateState(guildId, interaction.channelId);
@@ -264,7 +265,7 @@ export async function handleCola(interaction: ChatInputCommandInteraction): Prom
     return `${prefix} **${song.title}** — pedida por ${song.requestedBy}`;
   });
 
-  await interaction.reply(`**Cola de música:**\n${lines.join("\n")}`);
+  await interaction.reply({ content: "**Cola de música:**\n" + lines.join("\n"), ...SILENT });
 }
 
 export async function handleSkip(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -279,7 +280,7 @@ export async function handleSkip(interaction: ChatInputCommandInteraction): Prom
   const skipped = state.queue[0].title;
   killActiveProcesses(state);
   state.player.stop();
-  await interaction.reply(`⏭️ Saltando: **${skipped}**`);
+  await interaction.reply({ content: `⏭️ Saltando: **${skipped}**`, ...SILENT });
 }
 
 export async function handleStop(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -302,7 +303,7 @@ export async function handleStop(interaction: ChatInputCommandInteraction): Prom
   }
 
   connection?.destroy();
-  await interaction.reply("⏹️ Parado y desconectado.");
+  await interaction.reply({ content: "⏹️ Parado y desconectado.", ...SILENT });
 }
 
 export async function handlePausa(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -315,7 +316,7 @@ export async function handlePausa(interaction: ChatInputCommandInteraction): Pro
   }
 
   state.player.pause();
-  await interaction.reply("⏸️ Pausado.");
+  await interaction.reply({ content: "⏸️ Pausado.", ...SILENT });
 }
 
 export async function handleSigue(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -328,5 +329,5 @@ export async function handleSigue(interaction: ChatInputCommandInteraction): Pro
   }
 
   state.player.unpause();
-  await interaction.reply("▶️ Reanudando.");
+  await interaction.reply({ content: "▶️ Reanudando.", ...SILENT });
 }

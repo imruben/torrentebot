@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "deploy": "ts-node src/deploy-commands.ts"
+    "deploy": "node dist/deploy-commands.js"
   },
   "keywords": [],
   "author": "",

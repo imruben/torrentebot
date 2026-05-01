@@ -1,10 +1,11 @@
 import { ChatInputCommandInteraction } from "discord.js";
 import { getLeaderboard } from "../db";
+import { SILENT } from "../utils";
 
 export async function handleRanking(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) return;
 
-  await interaction.deferReply();
+  await interaction.deferReply({ ...SILENT });
 
   const rows = await getLeaderboard(interaction.guild.id);
 

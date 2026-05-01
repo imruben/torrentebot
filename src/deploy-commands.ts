@@ -12,10 +12,6 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("pesetas")
-    .setDescription("Muestra tu saldo actual de pesetas"),
-
-  new SlashCommandBuilder()
-    .setName("ranking")
     .setDescription("Top 10 de pesetas del servidor"),
 
   new SlashCommandBuilder()
@@ -54,10 +50,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName("sigue")
     .setDescription("Reanuda la reproducción"),
-
-  new SlashCommandBuilder()
-    .setName("ayuda")
-    .setDescription("Muestra todos los comandos disponibles"),
 ].map((cmd) => cmd.toJSON());
 
 const token = process.env.DISCORD_TOKEN;

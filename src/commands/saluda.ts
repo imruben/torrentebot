@@ -9,6 +9,7 @@ import {
 } from "@discordjs/voice";
 import path from "path";
 import fs from "fs";
+import { SILENT } from "../utils";
 
 const GREETING_FILE = path.join(__dirname, "..", "..", "assets", "audio", "greeting.mp3");
 
@@ -26,7 +27,7 @@ export async function handleSaluda(interaction: ChatInputCommandInteraction): Pr
     return;
   }
 
-  await interaction.deferReply();
+  await interaction.reply({ content: "🎙️ Uniéndome al canal...", ...SILENT });
 
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
