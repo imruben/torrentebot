@@ -58,7 +58,6 @@ export function startVoiceTicker(client: Client): void {
 
       // Award regular tick pesetas
       const newBalance = await addPesetas(guildId, userId, PESETAS_PER_TICK);
-      console.log(`[Pesetas] +${PESETAS_PER_TICK} pesetas → ${userId} | balance: ${newBalance}`);
       updatedGuilds.add(guildId);
 
       // Increment streak and check for hourly bonus
@@ -66,10 +65,7 @@ export function startVoiceTicker(client: Client): void {
       qualifyingTicks.set(key, ticks);
 
       if (ticks % TICKS_PER_HOUR === 0) {
-        const bonusBalance = await addPesetas(guildId, userId, HOURLY_BONUS);
-        console.log(
-          `[Pesetas] +${HOURLY_BONUS} hourly bonus → ${userId} | balance: ${bonusBalance}`
-        );
+        await addPesetas(guildId, userId, HOURLY_BONUS);
         updatedGuilds.add(guildId);
       }
     }
