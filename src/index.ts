@@ -2,7 +2,7 @@ import { Events, ChatInputCommandInteraction } from "discord.js";
 import "dotenv/config";
 import client from "./client";
 import { initDb } from "./db";
-import { handleSaluda } from "./commands/saluda";
+import { handleAudio } from "./commands/audio";
 import { handleRanking } from "./commands/ranking";
 import { handleApostar } from "./commands/apostar";
 import { handlePon, handleCola, handleSkip, handleStop, handlePausa, handleSigue, handleAutodj } from "./commands/music";
@@ -27,7 +27,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   try {
     switch (i.commandName) {
-      case "saluda":   await handleSaluda(i);  break;
+      case "audio":    await handleAudio(i);   break;
       case "pesetas":  await handleRanking(i); break;
       case "apostar":  await handleApostar(i); break;
       case "pon":      await handlePon(i);     break;

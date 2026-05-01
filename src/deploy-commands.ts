@@ -7,8 +7,18 @@ import "dotenv/config";
 
 const commands = [
   new SlashCommandBuilder()
-    .setName("saluda")
-    .setDescription("El bot entra al canal de voz, saluda y se va"),
+    .setName("audio")
+    .setDescription("Reproduce un audio en el canal de voz")
+    .addStringOption((opt) =>
+      opt
+        .setName("clip")
+        .setDescription("Audio a reproducir")
+        .setRequired(true)
+        .addChoices(
+          { name: "pajillas", value: "pajillas" },
+          { name: "lol", value: "lol" }
+        )
+    ),
 
   new SlashCommandBuilder()
     .setName("pesetas")
