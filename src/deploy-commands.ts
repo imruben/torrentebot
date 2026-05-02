@@ -64,6 +64,13 @@ const commands = [
   new SlashCommandBuilder()
     .setName("autodj")
     .setDescription("Activa o desactiva el modo Auto-DJ"),
+
+  new SlashCommandBuilder()
+    .setName("ruleta")
+    .setDescription("Apuesta pesetas en la ruleta")
+    .addIntegerOption((opt) =>
+      opt.setName("cantidad").setDescription("Pesetas a apostar").setMinValue(1).setRequired(true)
+    ),
 ].map((cmd) => cmd.toJSON());
 
 const token = process.env.DISCORD_TOKEN;

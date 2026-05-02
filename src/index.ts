@@ -1,4 +1,4 @@
-import { Events, ChatInputCommandInteraction } from "discord.js";
+import { Events, ChatInputCommandInteraction, StringSelectMenuInteraction, ModalSubmitInteraction } from "discord.js";
 import "dotenv/config";
 import client from "./client";
 import { initDb } from "./db";
@@ -6,6 +6,7 @@ import { handleAudio } from "./commands/audio";
 import { handleRanking } from "./commands/ranking";
 import { handleApostar } from "./commands/apostar";
 import { handlePon, handleCola, handleSkip, handleStop, handlePausa, handleSigue, handleAutodj } from "./commands/music";
+import { handleRuleta, handleRuletaSelect, handleRuletaModal } from "./commands/ruleta";
 import { handleVoiceStateUpdate, startVoiceTicker } from "./events/voiceTracker";
 
 client.once(Events.ClientReady, (bot) => {
@@ -21,30 +22,39 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
 
 // ─── Slash command handler ────────────────────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  const i = interaction as ChatInputCommandInteraction;
-
   try {
-    switch (i.commandName) {
-      case "audio":    await handleAudio(i);   break;
-      case "pesetas":  await handleRanking(i); break;
-      case "apostar":  await handleApostar(i); break;
-      case "pon":      await handlePon(i);     break;
-      case "cola":     await handleCola(i);    break;
-      case "skip":     await handleSkip(i);    break;
-      case "stop":     await handleStop(i);    break;
-      case "pausa":    await handlePausa(i);   break;
-      case "sigue":    await handleSigue(i);   break;
-      case "autodj":   await handleAutodj(i);  break;
+    if (interaction.isChatInputCommand()) {
+      const i = interaction as ChatInputCommandInteraction;
+      switch (i.commandName) {
+        case "audio":    await handleAudio(i);   break;
+        case "pesetas":  await handleRanking(i); break;
+        case "apostar":  await handleApostar(i); break;
+        case "pon":      await handlePon(i);     break;
+        case "cola":     await handleCola(i);    break;
+        case "skip":     await handleSkip(i);    break;
+        case "stop":     await handleStop(i);    break;
+        case "pausa":    await handlePausa(i);   break;
+        case "sigue":    await handleSigue(i);   break;
+        case "autodj":   await handleAutodj(i);  break;
+        case "ruleta":   await handleRuleta(i);  break;
+      }
+    } else if (interaction.isStringSelectMenu()) {
+      const i = interaction as StringSelectMenuInteraction;
+      if (i.customId === "ruleta_tipo") await handleRuletaSelect(i);
+    } else if (interaction.isModalSubmit()) {
+      const i = interaction as ModalSubmitInteraction;
+      if (i.customId === "ruleta_numero_modal") await handleRuletaModal(i);
     }
   } catch (err) {
-    console.error(`[TorrenteBot] Error handling /${i.commandName}:`, err);
-    const msg = { content: "Ocurrió un error ejecutando el comando.", ephemeral: true };
-    if (i.deferred || i.replied) {
-      await i.editReply(msg).catch(() => {});
-    } else {
-      await i.reply(msg).catch(() => {});
+    console.error("[TorrenteBot] Error handling interaction:", err);
+    const msg = { content: "Me cago en todo lo que se menea. Algo ha petao, chaval.", ephemeral: true };
+    if ("deferred" in interaction && "replied" in interaction) {
+      const i = interaction as ChatInputCommandInteraction;
+      if (i.deferred || i.replied) {
+        await i.editReply(msg).catch(() => {});
+      } else {
+        await i.reply(msg).catch(() => {});
+      }
     }
   }
 });

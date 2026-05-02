@@ -164,6 +164,45 @@ const phrases: Record<string, string[]> = {
     "Error. Y yo que sé. La tecnología es cosa de pringaos. Inténtalo otra vez, fenómeno.",
     "Algo ha fallao, desgraciado. No es culpa mía, es culpa del sistema.",
   ],
+
+  roulette_pick: [
+    "🎰 Muy bien, {amount} pesetas. ¿A qué apostamos, fenómeno? Elige antes de que me arrepienta.",
+    "🎰 {amount} pesetas sobre la mesa. ¿Qué tipo de apuesta, desgraciado? Elige o me voy al chino.",
+    "🎰 Ahí van {amount} pesetas. Vamos a ver si tienes suerte o eres un pringao de los de siempre.",
+  ],
+
+  roulette_spinning: [
+    "🎰 Ahí va la bolita... Me cago en la ruleta, esto es mejor que el bingo del barrio. Espera, chaval...",
+    "🎰 Girando... Chu-shi-su. La física newtoniana manda, desgraciado. Ya veremos...",
+    "🎰 La bolita rueda... Yo ya sé el resultado pero no te lo digo. Aguanta, fenómeno...",
+    "🎰 Girando la ruleta... Voy a rezarle al Fary por si acaso. Un momento, chaval...",
+  ],
+
+  roulette_win: [
+    "🎉 ¡**{number}** — {zone}! ¡HAS GANAO, FENÓMENO! +{profit} pesetas. ¡Viva el Atleti y el Fary!",
+    "🎉 ¡Sale el **{number}** — {zone}! ¡Toma castaña, desgraciado! +{profit} pesetas en tu bolsillo.",
+    "🎉 ¡**{number}** — {zone}! ¡Qué suertudo eres, pringao! Te llevas {profit} pesetas. Invítame a una caña.",
+    "🎉 ¡**{number}** — {zone}! ¡Madre mía, has ganao! +{profit} pesetas. Esto no pasa ni en el Calderón.",
+  ],
+
+  roulette_lose: [
+    "💀 Sale el **{number}** — {zone}. Has perdido {amount} pesetas, caracartón. Eso te pasa por no rezarle al Fary.",
+    "💀 **{number}** — {zone}. Perdiste {amount} pesetas, desgraciado. La ruleta no es pa pringaos como tú.",
+    "💀 **{number}** — {zone}. Se fueron {amount} pesetas, chaval. ¿Ves? España se va a la mierda.",
+    "💀 **{number}** — {zone}. {amount} pesetas menos, fenómeno. Vete a trabajar un rato y cierra la boca.",
+  ],
+
+  roulette_no_funds: [
+    "No tienes ni pa pipas, chaval. Necesitas {amount} pesetas y llevas {balance}. Vete al canal de voz.",
+    "¿Con qué dinero, desgraciado? Llevas {balance} pesetas y quieres apostar {amount}. Me parto.",
+    "Eso no te lo puedo aceptar, fenómeno. Te faltan pesetas. Métete en un canal de voz y trabaja.",
+  ],
+
+  roulette_invalid_number: [
+    "¿Qué número es ese, fenómeno? Del 0 al 36, que esto es una ruleta, no el bingo del barrio.",
+    "Ese número no existe en una ruleta, desgraciado. Del 0 al 36. Aprende.",
+    "¿Del 0 al 36 es tan difícil, chaval? Pon un número que exista.",
+  ],
 };
 
 function pick(pool: string[]): string {
