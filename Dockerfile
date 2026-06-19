@@ -1,8 +1,8 @@
 # ─── Build stage ──────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 RUN apk add --no-cache python3 py3-pip make g++ && \
-    pip3 install --break-system-packages yt-dlp
+    pip3 install --break-system-packages "yt-dlp[default]"
 
 WORKDIR /app
 
@@ -14,14 +14,14 @@ COPY src ./src
 RUN npm run build
 
 # ─── Production stage ─────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
 RUN apk add --no-cache ffmpeg python3 py3-pip make g++ && \
-    pip3 install --break-system-packages yt-dlp
+    pip3 install --break-system-packages "yt-dlp[default]"
 
 COPY package*.json ./
 RUN npm ci --omit=dev
