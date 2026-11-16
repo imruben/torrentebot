@@ -6,15 +6,40 @@ Viva el fary
 
 ## Commands
 
+Slash commands (registered automatically when the bot starts):
+
 | Command | Description |
 |---|---|
-| `!torrente` | Random Fary quote |
-| `@TorrenteBot` | Same as above |
-| `!torrente saluda` | Bot joins your voice channel, plays `greeting.mp3`, then leaves |
-| `!torrente pesetas` | Shows your current pesetas balance |
-| `!torrente ranking` | Shows the top 10 leaderboard for the server |
-| `!torrente apostar @user <amount>` | Challenge someone to a bet |
-| `!torrente acepto` | Accept a pending bet challenge |
+| `/pon <cancion>` | Play a song (name or URL) or add it to the queue |
+| `/cola` `/skip` `/stop` `/pausa` `/sigue` | Queue controls |
+| `/autodj` | Toggle Auto-DJ (keeps playing related songs when the queue ends) |
+| `/audio <clip>` | Bot joins your voice channel and plays a clip from `assets/audio/` |
+| `/pesetas` | Top 10 leaderboard for the server |
+| `/apostar [rival] [cantidad]` | Challenge someone to a bet |
+| `/ruleta <cantidad>` | Bet pesetas on the roulette |
+| `/cookies [archivo]` | Bot owner only — upload YouTube cookies / check that YouTube works |
+
+## Music and YouTube
+
+Music is streamed with `yt-dlp` + `ffmpeg`. The bot updates `yt-dlp` by itself on boot and once a day.
+
+YouTube blocks most server/datacenter IPs with *"Sign in to confirm you're not a bot"*. When that happens the bot:
+
+1. retries without cookies (stale cookies can be worse than none),
+2. falls back to **SoundCloud** (best effort: label tracks there are 30s previews or DRM, so you often get a cover/remix),
+3. if nothing is found, tells the channel that the cookies need renewing.
+
+To get real YouTube audio back, give the bot cookies from a logged-in session:
+
+1. Open a **private/incognito window** and log into YouTube (a throwaway Google account is recommended — the account can get flagged).
+2. In that same tab go to `https://www.youtube.com/robots.txt`.
+3. Export the cookies with the [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) extension (allow it in incognito) → `cookies.txt`.
+4. **Close the incognito window** (so the browser never rotates that session).
+5. In Discord run `/cookies archivo:<cookies.txt>`. The bot saves it, tests YouTube and tells you if it works.
+
+The cookies are stored in `/app/data/cookies.txt` and in Postgres, so they survive redeploys without any volume. `/cookies` with no file just runs the YouTube check. Only the owner of the Discord application (or IDs in `OWNER_ID`) can use it.
+
+Alternative without cookies: set `YTDLP_PROXY` to a residential proxy.
 
 ## Pesetas economy
 

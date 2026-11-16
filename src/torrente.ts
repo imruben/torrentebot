@@ -154,6 +154,22 @@ const phrases: Record<string, string[]> = {
     "Eso no existe o YouTube no quiere saber ná. Prueba con otra búsqueda, pringao.",
   ],
 
+  song_fallback: [
+    "YouTube se ha puesto chulo y no me deja, así que la he pillao de SoundCloud: **{title}**. Puede que no sea la versión buena, chaval.",
+    "Los de YouTube me piden el carnet, me cago en todo. Te pongo esto de SoundCloud: **{title}**. Es lo que hay, fenómeno.",
+    "YouTube no quiere saber ná de mí. He encontrao **{title}** en SoundCloud, a ver si cuela, desgraciado.",
+  ],
+
+  error_youtube_blocked: [
+    "YouTube me ha cerrao el grifo (dice que soy un robot, me cago en todo) y tampoco lo encuentro en otro lao. Que el dueño suba cookies nuevas con `/cookies`.",
+    "Los de YouTube me piden que inicie sesión, desgraciado. Hasta que el jefe no renueve las cookies con `/cookies`, esa no suena.",
+  ],
+
+  error_playback: [
+    "No he podido reproducir **{title}**, me cago en todo. Paso a la siguiente, chaval.",
+    "**{title}** no arranca ni a patadas, fenómeno. Siguiente.",
+  ],
+
   error_voice_connect: [
     "No pude unirme al canal de voz. Me cago en la tecnología moderna, desgraciado.",
     "Error al conectarme. ¿Ves? Por esto España se va a la mierda. Inténtalo otra vez, chaval.",
