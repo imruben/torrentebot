@@ -39,42 +39,47 @@ export function startVoiceTicker(client: Client): void {
   });
 
   setInterval(async () => {
-    const updatedGuilds = new Set<string>();
+    try {
+      const updatedGuilds = new Set<string>();
 
-    for (const [key, channelId] of voiceSessions) {
-      const [guildId, userId] = key.split(":");
-      const guild = client.guilds.cache.get(guildId);
-      if (!guild) continue;
+      for (const [key, channelId] of voiceSessions) {
+        const [guildId, userId] = key.split(":");
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) continue;
 
-      const channel = guild.channels.cache.get(channelId);
-      if (!channel?.isVoiceBased()) continue;
+        const channel = guild.channels.cache.get(channelId);
+        if (!channel?.isVoiceBased()) continue;
 
-      const humanCount = channel.members.filter((m) => !m.user.bot).size;
-      if (humanCount < 2) {
-        // Channel no longer qualifies — reset the streak
-        qualifyingTicks.delete(key);
-        continue;
-      }
+        const humanCount = channel.members.filter((m) => !m.user.bot).size;
+        if (humanCount < 2) {
+          // Channel no longer qualifies — reset the streak
+          qualifyingTicks.delete(key);
+          continue;
+        }
 
-      // Award regular tick pesetas
-      const newBalance = await addPesetas(guildId, userId, PESETAS_PER_TICK);
-      updatedGuilds.add(guildId);
-
-      // Increment streak and check for hourly bonus
-      const ticks = (qualifyingTicks.get(key) ?? 0) + 1;
-      qualifyingTicks.set(key, ticks);
-
-      if (ticks % TICKS_PER_HOUR === 0) {
-        await addPesetas(guildId, userId, HOURLY_BONUS);
+        // Award regular tick pesetas
+        const newBalance = await addPesetas(guildId, userId, PESETAS_PER_TICK);
         updatedGuilds.add(guildId);
-      }
-    }
 
-    // Update the fary role once per guild where pesetas changed
-    for (const guildId of updatedGuilds) {
-      await updateFaryRole(guildId).catch((err) =>
-        console.error("[FaryRole] Error updating after tick:", err)
-      );
+        // Increment streak and check for hourly bonus
+        const ticks = (qualifyingTicks.get(key) ?? 0) + 1;
+        qualifyingTicks.set(key, ticks);
+
+        if (ticks % TICKS_PER_HOUR === 0) {
+          await addPesetas(guildId, userId, HOURLY_BONUS);
+          updatedGuilds.add(guildId);
+        }
+      }
+
+      // Update the fary role once per guild where pesetas changed
+      for (const guildId of updatedGuilds) {
+        await updateFaryRole(guildId).catch((err) =>
+          console.error("[FaryRole] Error updating after tick:", err)
+        );
+      }
+    } catch (err) {
+      // A DB hiccup must not kill the ticker (or the process)
+      console.error("[VoiceTracker] Tick failed:", err);
     }
   }, TICK_INTERVAL_MS);
 }

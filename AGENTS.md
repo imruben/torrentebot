@@ -54,6 +54,14 @@ assets/audio/              # MP3 files baked into Docker image at build time
 - Bet state (`pendingBets`) is in-memory only — a bot restart cancels all pending bets.
 - `!torrente` or `@mention` with no subcommand → shows the help select menu (ephemeral per-command detail, 60s timeout).
 
+## Music / yt-dlp
+
+- All yt-dlp logic is in `src/ytdlp.ts` (args, cookies, resolve + SoundCloud fallback, auto-update). `src/commands/music.ts` only handles queue/playback.
+- Do not force `player_client` — yt-dlp defaults track what works. Override with `YTDLP_EXTRACTOR_ARGS` if ever needed.
+- YouTube blocks datacenter IPs ("Sign in to confirm you're not a bot"). Fix = cookies uploaded via `/cookies` (stored in `/app/data/cookies.txt` + `bot_kv` table). See README.
+- Slash commands are defined in `src/commands/definitions.ts` and registered on startup — no manual `npm run deploy` needed.
+- NOTE: the "Architecture" and "Key behaviours" sections above still describe the old `!torrente` prefix bot and are partly outdated.
+
 ## Discord Developer Portal requirements
 
 - **Message Content Intent** must be enabled: `Bot → Privileged Gateway Intents`

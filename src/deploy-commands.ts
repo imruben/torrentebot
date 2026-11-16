@@ -1,77 +1,8 @@
-import {
-  REST,
-  Routes,
-  SlashCommandBuilder,
-} from "discord.js";
+import { REST, Routes } from "discord.js";
 import "dotenv/config";
+import { commands } from "./commands/definitions";
 
-const commands = [
-  new SlashCommandBuilder()
-    .setName("audio")
-    .setDescription("Reproduce un audio en el canal de voz")
-    .addStringOption((opt) =>
-      opt
-        .setName("clip")
-        .setDescription("Audio a reproducir")
-        .setRequired(true)
-        .addChoices(
-          { name: "pajillas", value: "pajillas" },
-          { name: "lol", value: "lol" }
-        )
-    ),
 
-  new SlashCommandBuilder()
-    .setName("pesetas")
-    .setDescription("Top 10 de pesetas del servidor"),
-
-  new SlashCommandBuilder()
-    .setName("apostar")
-    .setDescription("Reta a alguien a una apuesta")
-    .addUserOption((opt) =>
-      opt.setName("rival").setDescription("Usuario al que quieres retar").setRequired(false)
-    )
-    .addIntegerOption((opt) =>
-      opt.setName("cantidad").setDescription("Cantidad de pesetas a apostar").setMinValue(1).setRequired(false)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("pon")
-    .setDescription("Pon una canción o añádela a la cola")
-    .addStringOption((opt) =>
-      opt.setName("cancion").setDescription("Nombre de la canción o URL de YouTube").setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("cola")
-    .setDescription("Muestra la cola de música"),
-
-  new SlashCommandBuilder()
-    .setName("skip")
-    .setDescription("Salta la canción actual"),
-
-  new SlashCommandBuilder()
-    .setName("stop")
-    .setDescription("Para la música y el bot sale del canal"),
-
-  new SlashCommandBuilder()
-    .setName("pausa")
-    .setDescription("Pausa la reproducción"),
-
-  new SlashCommandBuilder()
-    .setName("sigue")
-    .setDescription("Reanuda la reproducción"),
-
-  new SlashCommandBuilder()
-    .setName("autodj")
-    .setDescription("Activa o desactiva el modo Auto-DJ"),
-
-  new SlashCommandBuilder()
-    .setName("ruleta")
-    .setDescription("Apuesta pesetas en la ruleta")
-    .addIntegerOption((opt) =>
-      opt.setName("cantidad").setDescription("Pesetas a apostar").setMinValue(1).setRequired(true)
-    ),
-].map((cmd) => cmd.toJSON());
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;

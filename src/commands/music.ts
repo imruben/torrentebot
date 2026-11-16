@@ -12,8 +12,16 @@ import {
   entersState,
 } from "@discordjs/voice";
 import { execFile, spawn } from "child_process";
-import { existsSync } from "fs";
 import { promisify } from "util";
+import {
+  commonArgs,
+  findOnSoundCloud,
+  isBlockedError,
+  isYoutubeUrl,
+  resolveSong,
+  ResolvedSong,
+  YoutubeBlockedError,
+} from "../ytdlp";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,6 +30,7 @@ interface Song {
   title: string;
   url: string;
   requestedBy: string; // "autodj" for auto-queued songs
+  triedFallback?: boolean; // already swapped to a fallback source once
 }
 
 interface GuildMusicState {
@@ -43,7 +52,6 @@ interface GuildMusicState {
 const guildStates = new Map<string, GuildMusicState>();
 
 const IDLE_TIMEOUT_MS = 120_000;
-const COOKIES_PATH = process.env.YTDLP_COOKIES_PATH ?? "/app/data/cookies.txt";
 const RECENTLY_PLAYED_LIMIT = 10;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,6 +93,17 @@ function scheduleIdleLeave(guildId: string, state: GuildMusicState): void {
     getVoiceConnection(guildId)?.destroy();
     guildStates.delete(guildId);
   }, IDLE_TIMEOUT_MS);
+}
+
+function sendToTextChannel(
+  client: import("discord.js").Client,
+  state: GuildMusicState,
+  content: string
+): void {
+  const channel = client.channels.cache.get(state.textChannelId);
+  if (channel?.isTextBased() && "send" in channel) {
+    (channel as TextChannel).send({ content, ...SILENT }).catch(() => {});
+  }
 }
 
 // Stop the vote-skip reaction collector for the current song
@@ -158,31 +177,6 @@ async function sendNowPlaying(
   });
 }
 
-// ─── yt-dlp resolve ───────────────────────────────────────────────────────────
-async function resolveWithYtDlp(query: string): Promise<{ title: string; url: string }> {
-  const isUrl = /^https?:\/\//i.test(query);
-  const target = isUrl ? query : `ytsearch1:${query}`;
-
-  const args = [
-    "--print", "title",
-    "--print", "webpage_url",
-    "--no-playlist",
-    "--js-runtimes", "node",
-    "--extractor-args", "youtube:player_client=web",
-    "--remote-components", "ejs:github",
-    "--skip-download",
-  ];
-
-  if (existsSync(COOKIES_PATH)) args.push("--cookies", COOKIES_PATH);
-  args.push(target);
-
-  const { stdout } = await execFileAsync("yt-dlp", args);
-  const lines = stdout.trim().split("\n");
-  if (lines.length < 2) throw new Error("yt-dlp returned unexpected output");
-
-  return { title: lines[0].trim(), url: lines[1].trim() };
-}
-
 // ─── Auto-DJ: get related songs from YouTube Mix ──────────────────────────────
 async function getRelatedSong(
   lastUrl: string,
@@ -202,13 +196,11 @@ async function getRelatedSong(
       "--print", "webpage_url",
       "--flat-playlist",
       "--playlist-items", "2:8", // grab items 2–8 (skip item 1 = the song itself)
-      "--js-runtimes", "node",
-      "--extractor-args", "youtube:player_client=web",
-      "--remote-components", "ejs:github",
+      // commonArgs() adds --no-playlist; --yes-playlist after it wins, we do want the Mix here
+      ...commonArgs(),
+      "--yes-playlist",
+      mixUrl,
     ];
-
-    if (existsSync(COOKIES_PATH)) args.push("--cookies", COOKIES_PATH);
-    args.push(mixUrl);
 
     const { stdout } = await execFileAsync("yt-dlp", args, { timeout: 30_000 });
     const lines = stdout.trim().split("\n").filter(Boolean);
@@ -284,15 +276,10 @@ function playNext(guildId: string, client: import("discord.js").Client): void {
   const ytdlpArgs = [
     "-o", "-",
     "-f", "bestaudio/best",
-    "--no-playlist",
     "--quiet",
-    "--js-runtimes", "node",
-    "--extractor-args", "youtube:player_client=web",
-    "--remote-components", "ejs:github",
+    ...commonArgs(),
+    song.url,
   ];
-
-  if (existsSync(COOKIES_PATH)) ytdlpArgs.push("--cookies", COOKIES_PATH);
-  ytdlpArgs.push(song.url);
 
   const ytdlp = spawn("yt-dlp", ytdlpArgs, { stdio: ["ignore", "pipe", "pipe"] });
   const ffmpeg = spawn("ffmpeg", [
@@ -311,7 +298,20 @@ function playNext(guildId: string, client: import("discord.js").Client): void {
   ytdlp.stdout.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code !== "EPIPE") console.error("[Music] yt-dlp stdout error:", err);
   });
-  ytdlp.stderr.on("data", (d) => { const m = d.toString().trim(); if (m) console.error(`[Music] yt-dlp: ${m}`); });
+  // Track whether this attempt produced any audio, and why not if it didn't
+  let gotAudio = false;
+  let ytdlpStderr = "";
+  ffmpeg.stdout.once("data", () => { gotAudio = true; });
+  const ytdlpExit = new Promise<number | null>((resolve) => {
+    ytdlp.once("close", (code) => resolve(code));
+    ytdlp.once("error", () => resolve(-1));
+  });
+  ytdlp.stderr.on("data", (d) => {
+    const m = d.toString().trim();
+    if (!m) return;
+    ytdlpStderr = (ytdlpStderr + "\n" + m).slice(-2000);
+    console.error(`[Music] yt-dlp: ${m}`);
+  });
   ffmpeg.stderr.on("data", (d) => { const m = d.toString().trim(); if (m) console.log(`[Music] ffmpeg: ${m.slice(0, 120)}`); });
   ytdlp.on("error", (err: NodeJS.ErrnoException) => { if (err.code !== "EPIPE") console.error("[Music] yt-dlp spawn error:", err); });
   ffmpeg.on("error", (err: NodeJS.ErrnoException) => { if (err.code !== "EPIPE") console.error("[Music] ffmpeg spawn error:", err); });
@@ -322,7 +322,36 @@ function playNext(guildId: string, client: import("discord.js").Client): void {
   console.log(`[Music] Playing: ${song.title}`);
 
   state.player.removeAllListeners(AudioPlayerStatus.Idle);
-  state.player.once(AudioPlayerStatus.Idle, () => {
+  state.player.once(AudioPlayerStatus.Idle, async () => {
+    // Give yt-dlp a moment to report its exit code so we can tell "finished" from "failed"
+    const exitCode = await Promise.race([
+      ytdlpExit,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000)),
+    ]);
+
+    // /stop (or a disconnect) while we were waiting — nothing left to do
+    if (guildStates.get(guildId) !== state) return;
+    // The queue moved on without us (shouldn't happen, but never shift someone else's song)
+    if (state.queue[0] !== song) return;
+
+    const failed = !gotAudio && !ytdlp.killed && exitCode !== 0 && exitCode !== null;
+    if (failed) {
+      // YouTube refused mid-queue (cookies expired, Auto-DJ pick…): retry once from SoundCloud
+      if (!song.triedFallback && isYoutubeUrl(song.url) && isBlockedError(ytdlpStderr)) {
+        song.triedFallback = true;
+        const alt = await findOnSoundCloud(song.title).catch(() => null);
+        if (guildStates.get(guildId) !== state || state.queue[0] !== song) return;
+        if (alt) {
+          console.log(`[Music] Playback blocked by YouTube — retrying from SoundCloud: ${alt.url}`);
+          song.url = alt.url;
+          song.title = alt.title;
+          playNext(guildId, client);
+          return;
+        }
+      }
+      sendToTextChannel(client, state, torrente("error_playback", { title: song.title }));
+    }
+
     state.queue.shift();
     playNext(guildId, client);
   });
@@ -331,10 +360,7 @@ function playNext(guildId: string, client: import("discord.js").Client): void {
   state.player.on("error", (err) => {
     console.error(`[Music] Player error in guild ${guildId}:`, err);
     state.queue.shift();
-    const channel = client.channels.cache.get(state.textChannelId);
-    if (channel?.isTextBased() && "send" in channel) {
-      (channel as TextChannel).send({ content: torrente("error_generic"), ...SILENT }).catch(() => {});
-    }
+    sendToTextChannel(client, state, torrente("error_generic"));
     playNext(guildId, client);
   });
 
@@ -361,12 +387,16 @@ export async function handlePon(interaction: ChatInputCommandInteraction): Promi
   const guildId = interaction.guild!.id;
   const state = getOrCreateState(guildId, interaction.channelId);
 
-  let songInfo: { title: string; url: string };
+  let songInfo: ResolvedSong;
   try {
-    songInfo = await resolveWithYtDlp(query);
+    songInfo = await resolveSong(query);
   } catch (err) {
-    console.error("[Music] yt-dlp error:", err);
-    await interaction.editReply(torrente("error_resolve"));
+    if (err instanceof YoutubeBlockedError) {
+      await interaction.editReply(torrente("error_youtube_blocked"));
+    } else {
+      console.error("[Music] yt-dlp error:", err);
+      await interaction.editReply(torrente("error_resolve"));
+    }
     return;
   }
 
@@ -374,6 +404,7 @@ export async function handlePon(interaction: ChatInputCommandInteraction): Promi
     title: songInfo.title,
     url: songInfo.url,
     requestedBy: interaction.user.username,
+    triedFallback: songInfo.fallback,
   };
 
   state.queue.push(song);
@@ -405,12 +436,13 @@ export async function handlePon(interaction: ChatInputCommandInteraction): Promi
     }
   }
 
-  if (state.player.state.status === AudioPlayerStatus.Idle && state.queue.length === 1) {
-    await interaction.editReply(torrente("song_playing", { title: song.title }));
-    playNext(guildId, interaction.client);
-  } else {
-    await interaction.editReply(torrente("song_added", { title: song.title }));
-  }
+  const startsNow = state.player.state.status === AudioPlayerStatus.Idle && state.queue.length === 1;
+  const reply = songInfo.fallback
+    ? torrente("song_fallback", { title: song.title })
+    : torrente(startsNow ? "song_playing" : "song_added", { title: song.title });
+
+  await interaction.editReply(reply);
+  if (startsNow) playNext(guildId, interaction.client);
 }
 
 export async function handleCola(interaction: ChatInputCommandInteraction): Promise<void> {

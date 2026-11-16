@@ -22,6 +22,14 @@ export async function initDb(): Promise<void> {
     )
   `);
 
+  // Small key/value store for bot-wide settings (e.g. yt-dlp cookies)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bot_kv (
+      key    TEXT PRIMARY KEY,
+      value  TEXT NOT NULL
+    )
+  `);
+
   console.log("[DB] Schema ready.");
 }
 
@@ -153,4 +161,18 @@ export async function setFaryHolder(guildId: string, userId: string): Promise<vo
 // Clears the El Fary holder for a guild (nobody holds the role)
 export async function clearFaryHolder(guildId: string): Promise<void> {
   await pool.query(`DELETE FROM fary_holder WHERE guild_id = $1`, [guildId]);
+}
+
+// ─── Key/value store ──────────────────────────────────────────────────────────
+export async function getKv(key: string): Promise<string | null> {
+  const result = await pool.query<{ value: string }>(`SELECT value FROM bot_kv WHERE key = $1`, [key]);
+  return result.rows[0]?.value ?? null;
+}
+
+export async function setKv(key: string, value: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO bot_kv (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = $2`,
+    [key, value]
+  );
 }
